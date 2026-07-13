@@ -118,6 +118,10 @@ final class HaloAppModel {
     private func receive(_ connection: EP40MIDIConnection) {
         midiEndpointName = connection.displayName
         endpointConnected = connection.isConnected
+        // No live pad hold or LED may survive a connection change (DD-012). Done
+        // before present() so the PREVIEW demo's own pad press (on disconnect) is
+        // not immediately cleared.
+        scene.releaseAllPads()
         if connection.isConnected {
             deviceStatus = "CONNECTED"
             usbStatus = "MIDI"
@@ -155,6 +159,10 @@ final class HaloAppModel {
             state.clockPulse = true
 
             applyPadMapping(for: note, to: &state)
+            // Raw, per-note travel (polyphonic) — separate from the display's
+            // frontmost-held collapse above (DD-012). Two group notes can map to
+            // one physical pad; the scene refcounts them.
+            scene.padNoteOn(channel: channel, note: note, velocity: velocity)
 
         case let .noteOff(channel, note):
             let key = HeldMIDIKey(channel: channel, note: note)
@@ -172,6 +180,7 @@ final class HaloAppModel {
             state.leftMeter *= 0.52
             state.rightMeter *= 0.52
             state.clockPulse = false
+            scene.padNoteOff(channel: channel, note: note)
 
         case let .controlChange(_, controller, value):
             state.mode = .sound

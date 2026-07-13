@@ -22,6 +22,10 @@ final class EP40SceneController {
     private var controls = EP40ControlProjection.rest
     private var palette: HaloPalette = .graphPaper
     private var reduceMotion = false
+    /// Polyphonic live pad travel: raw Note On/Off refcounted per physical pad
+    /// (two group notes can map to one pad). Preview travel still goes through the
+    /// projection; live travel goes through here (Brief §6, DD-012).
+    private var padHolds = PadHoldRegistry()
 
     /// Held by `EP40StageView` so the SceneEvents.Update subscription that drives
     /// the ring tick lives as long as the RealityView content.
@@ -61,8 +65,10 @@ final class EP40SceneController {
             // resolve back to its contract entity without searching the tree.
             let pressables = EP40Entity.pressable
             keyAnimator.bind(pressables.compactMap { result.resolved[$0] })
-            keyAnimator.setAccent(.rk(palette.rimAccentHex))
+            keyAnimator.setAccent(rim: .rk(palette.rimAccentHex), led: .rk(palette.orangeHotHex))
+            keyAnimator.setReduceMotion(reduceMotion)
             controls = .rest
+            padHolds = PadHoldRegistry()
             // Halo-ring glow rig (Brief §5). Bound under the same generation guard
             // so a superseded load never rebinds the live rig. State is applied
             // from connection truth via `applyRing`, never from display frames.
@@ -81,7 +87,7 @@ final class EP40SceneController {
     /// gate. Cheap — at most a handful of lit prims (≤ ~20).
     func applyPalette(_ palette: HaloPalette) {
         self.palette = palette
-        keyAnimator.setAccent(.rk(palette.rimAccentHex))
+        keyAnimator.setAccent(rim: .rk(palette.rimAccentHex), led: .rk(palette.orangeHotHex))
         ringRig.setPalette(palette)
     }
 
@@ -98,12 +104,48 @@ final class EP40SceneController {
     func setReduceMotion(_ on: Bool) {
         reduceMotion = on
         ringRig.setReduceMotion(on)
+        keyAnimator.setReduceMotion(on)
     }
 
     /// Called once per render frame from the RealityView update subscription.
-    /// Static ring states early-out inside the rig at near-zero cost.
-    func ringTick(deltaTime: Float) {
+    /// The ring rig and the pad-LED decay both early-out at near-zero cost when
+    /// nothing is animating.
+    func frameTick(deltaTime: Float) {
         ringRig.tick(deltaTime: deltaTime)
+        keyAnimator.tick(deltaTime: deltaTime)
+    }
+
+    // MARK: - Live polyphonic pad travel (raw Note On/Off, Brief §6 / DD-012)
+
+    /// Raw observed Note On from `HaloAppModel`. Refcounts the physical pad so
+    /// simultaneous holds each depress it, and a duplicate strike re-flashes the
+    /// LED without further travel. Travel/display can never disagree: both map
+    /// notes through `EP40MIDIMapping.gridIndex` → `EP40Entity.padGridOrder`.
+    func padNoteOn(channel: UInt8, note: UInt8, velocity: UInt8) {
+        guard let (pad, t) = padHolds.noteOn(channel: channel, note: note,
+                                             velocity01: Float(velocity) / 127),
+              let e = resolved[EP40Entity.padGridOrder[pad]] else { return }
+        switch t {
+        case let .press(v):    keyAnimator.press(e, velocity: v)
+        case let .restrike(v): keyAnimator.restrike(e, velocity: v)
+        default: break
+        }
+    }
+
+    /// Raw observed Note Off. The pad releases (travel up + LED decay) only when
+    /// its LAST hold ends; a `.sustain` (other holds remain) moves nothing.
+    func padNoteOff(channel: UInt8, note: UInt8) {
+        guard let (pad, t) = padHolds.noteOff(channel: channel, note: note),
+              t == .release,
+              let e = resolved[EP40Entity.padGridOrder[pad]] else { return }
+        keyAnimator.release(e)
+    }
+
+    /// Disconnect / MIDI reset: no observation may survive a connection change —
+    /// every pad releases and every LED zeroes.
+    func releaseAllPads() {
+        _ = padHolds.releaseAll()
+        keyAnimator.releaseAll()
     }
 
     func entity(_ e: EP40Entity) -> Entity? { resolved[e] }
@@ -122,7 +164,10 @@ final class EP40SceneController {
     private func updateControls(for state: EP40DisplayState) {
         let next = EP40ControlProjection.project(state)
         guard next != controls else { return }
-        diffPress(old: controls.pressedPad, new: next.pressedPad)
+        // Preview-only travel; live travel is owned by raw notes (padNoteOn/Off).
+        // Feed the frame's velocity so the demo shows the LED language too.
+        diffPress(old: controls.previewPressedPad, new: next.previewPressedPad,
+                  velocity: state.velocity)
         diffLit(old: controls.selectedModeButton, new: next.selectedModeButton)
         diffLit(old: controls.activeGroupPad, new: next.activeGroupPad)
         if next.playEngaged != controls.playEngaged, let play = resolved[.buttonPlay] {
@@ -131,12 +176,13 @@ final class EP40SceneController {
         controls = next
     }
 
-    /// A single active pad travels; the previous one releases (polyphonic travel
-    /// can arrive later by feeding raw Note On/Off instead of the collapsed state).
-    private func diffPress(old: EP40Entity?, new: EP40Entity?) {
+    /// PREVIEW demo only: one pad travels at the frame's velocity, the previous one
+    /// releases. LIVE polyphonic travel is driven by raw Note On/Off through
+    /// `padNoteOn`/`padNoteOff`, never here.
+    private func diffPress(old: EP40Entity?, new: EP40Entity?, velocity: Float) {
         guard old != new else { return }
         if let old, let e = resolved[old] { keyAnimator.release(e) }
-        if let new, let e = resolved[new] { keyAnimator.press(e) }
+        if let new, let e = resolved[new] { keyAnimator.press(e, velocity: velocity) }
     }
 
     /// Move the rim from the old control to the new one.

@@ -31,13 +31,14 @@ struct EP40StageView: View {
                 RealityView { content in
                     let world = await controller.makeScene()
                     content.add(world)
-                    // Drive the halo-ring animation off the render loop, not a
-                    // timer. Static ring states early-out in the rig at ~zero cost.
+                    // Drive the halo-ring animation and pad-LED decay off the
+                    // render loop, not a timer. Both early-out at ~zero cost when
+                    // nothing is animating.
                     controller.ringSubscription = content.subscribe(
                         to: SceneEvents.Update.self
                     ) { event in
                         MainActor.assumeIsolated {
-                            controller.ringTick(deltaTime: Float(event.deltaTime))
+                            controller.frameTick(deltaTime: Float(event.deltaTime))
                         }
                     }
                     Task { @MainActor [weak controller] in

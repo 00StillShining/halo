@@ -11,13 +11,35 @@ enum HaloMechanics {
     static let hoverDuration: Double   = 0.08
 
     // 3D depth (meters)
-    static let travelMeters: Float    = 0.0012   // 1.1–1.3 mm full depression
     static let hoverLiftMeters: Float = 0.00015  // 0.15 mm hover lift
 
     // 2D equivalents (points) — the same feel at UI scale.
     static let travelPoints: CGFloat    = 2
     static let hoverLiftPoints: CGFloat = 0.5
     static let rimWidth: CGFloat        = 1      // thin orange focus rim
+
+    // Velocity response (Brief §6: velocity affects LED intensity MORE than
+    // travel). Travel varies only ~1.18x across the whole velocity range while
+    // the LED varies ~5.6x — the asymmetry is the brief's mandate and is pinned
+    // by `HaloMechanicsVelocityTests`. LED rise is instantaneous (a real LED has
+    // no attack); travel keeps the 65 ms ease-in / 110 ms ease-out — the contrast
+    // is itself part of the mechanical language.
+    static let travelMinMeters: Float = 0.0011      // brief: 1.1 mm (soft depression)
+    static let travelMaxMeters: Float = 0.0013      // brief: 1.3 mm (full depression)
+    static func travelDepth(velocity v: Float) -> Float {   // ~1.18x span
+        travelMinMeters + (travelMaxMeters - travelMinMeters) * min(max(v, 0), 1)
+    }
+
+    static let padLEDFloor: Float = 0.16
+    static let padLEDScale: Float = 0.74
+    static func padLEDOpacity(velocity v: Float) -> Float { // 0.16 … 0.90, ~5.6x span
+        let c = min(max(v, 0), 1)
+        return padLEDFloor + padLEDScale * c * c            // quadratic: soft hits read soft
+    }
+
+    static let padLEDDecayTau: Float = 0.09       // s; exponential — ~0.25 s visible tail
+    static let padLEDSkirtMargin: Float = 0.0008  // 0.8 mm light spill beyond the cap
+    static let padLEDSkirtLift: Float = 0.0004    // sits above the deck; no z-fighting
 }
 
 /// Brief §5 halo-ring behaviour constants. Single source of truth for the

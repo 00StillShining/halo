@@ -17,7 +17,7 @@ final class EP40ControlProjectionTests: XCTestCase {
         s.activePadIndex = 5
         let p = EP40ControlProjection.project(s)
         XCTAssertEqual(p, .rest)
-        XCTAssertNil(p.pressedPad)
+        XCTAssertNil(p.previewPressedPad)
         XCTAssertNil(p.selectedModeButton)
         XCTAssertNil(p.activeGroupPad)
         XCTAssertFalse(p.playEngaged)
@@ -77,14 +77,16 @@ final class EP40ControlProjectionTests: XCTestCase {
         XCTAssertNil(EP40ControlProjection.project(s).activeGroupPad)
     }
 
-    // MARK: Pad travel round-trips against padGridOrder (mirrors the mapping tests).
+    // MARK: PREVIEW pad travel round-trips against padGridOrder (live travel is
+    // owned by raw notes, not the projection — see testLiveStateNeverProjectsTravel).
 
     func testActivePadIndexResolvesToGridPad() {
         for idx in 0..<EP40Entity.padGridOrder.count {
             var s = EP40DisplayState.liveIdle
+            s.feedMode = .preview               // travel projects only in PREVIEW now
             s.activePadIndex = idx
             XCTAssertEqual(
-                EP40ControlProjection.project(s).pressedPad,
+                EP40ControlProjection.project(s).previewPressedPad,
                 EP40Entity.padGridOrder[idx],
                 "grid index \(idx) resolved to the wrong pad")
         }
@@ -92,10 +94,23 @@ final class EP40ControlProjectionTests: XCTestCase {
 
     func testNilOrOutOfRangePadHasNoTravel() {
         var s = EP40DisplayState.liveIdle
+        s.feedMode = .preview
         s.activePadIndex = nil
-        XCTAssertNil(EP40ControlProjection.project(s).pressedPad)
+        XCTAssertNil(EP40ControlProjection.project(s).previewPressedPad)
         s.activePadIndex = 12
-        XCTAssertNil(EP40ControlProjection.project(s).pressedPad)
+        XCTAssertNil(EP40ControlProjection.project(s).previewPressedPad)
+    }
+
+    // MARK: LIVE never projects travel — raw Note On/Off own it (DD-012).
+
+    func testLiveStateNeverProjectsTravel() {
+        var s = EP40DisplayState.liveIdle       // feedMode == .live
+        s.activePadIndex = 3
+        s.activeGroup = 1
+        let p = EP40ControlProjection.project(s)
+        XCTAssertNil(p.previewPressedPad, "live travel must come from raw notes, not the projection")
+        // Rims still project honestly in LIVE.
+        XCTAssertEqual(p.activeGroupPad, .groupB)
     }
 
     // MARK: `.preview` still projects — the demo deliberately drives the controls.
@@ -106,7 +121,7 @@ final class EP40ControlProjectionTests: XCTestCase {
         XCTAssertTrue(p.playEngaged)
         XCTAssertEqual(p.selectedModeButton, .buttonSound)
         XCTAssertEqual(p.activeGroupPad, .groupA)
-        XCTAssertEqual(p.pressedPad, EP40Entity.padGridOrder[3])
+        XCTAssertEqual(p.previewPressedPad, EP40Entity.padGridOrder[3])
     }
 
     // MARK: Honesty guarantee — there is no record channel to project at all.
@@ -119,7 +134,7 @@ final class EP40ControlProjectionTests: XCTestCase {
         let labels = Set(mirror.children.compactMap(\.label))
         XCTAssertEqual(
             labels,
-            ["pressedPad", "selectedModeButton", "activeGroupPad", "playEngaged"])
+            ["previewPressedPad", "selectedModeButton", "activeGroupPad", "playEngaged"])
         XCTAssertFalse(labels.contains { $0.lowercased().contains("record") })
     }
 }

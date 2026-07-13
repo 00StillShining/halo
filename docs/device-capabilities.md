@@ -34,6 +34,7 @@ Status legend:
 | Identity request/reply | UNKNOWN | Phase 0A | — |
 | Pads **transmit** Note On/Off (all 12 × groups A–D) | UNKNOWN — mapping DOCUMENTED, direction unverified | Phase 0A | — |
 | Velocity present on pad notes | UNKNOWN | Phase 0A | — |
+| Per-note velocity → LED intensity mapping (DD-012) | Consumed AS OBSERVED (0–127 → 0–1, quadratic to opacity). No velocity *curve* is claimed as hardware behaviour — if the device sends velocity at all, halo simply reflects the number it received. | DD-012 | — |
 | Note ranges 36–47=A … 72–83=D | DOCUMENTED (verbatim TE chart, both TX+RX columns) | research/02 | — |
 | Internal pad order within a group (dot/0–9/ENTER vs other) | **UNKNOWN — assumption only** | not in TE chart (research/02); app code currently assumes `. 0 ENTER 1–9` in EP40EntityNames — verify on device (Phase 0A) | — |
 | Play / Stop / Record **transmit** transport | UNKNOWN | Phase 0A | — |

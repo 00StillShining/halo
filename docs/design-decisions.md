@@ -254,6 +254,55 @@ per frame. The disconnected state leaves the USDZ ink annulus untouched (glow
 parent opacity 0); the optional 0.55 ink-softening was skipped because an
 `OpacityComponent` on the ring entity would also scale its glow-parent child.
 
+## DD-012 · Velocity LED glow + polyphonic pad travel
+
+**Velocity LED.** On an observed pad Note On, the struck pad gets a velocity-scaled
+emissive "LED": a **Halo-owned static deck-skirt annotation** (a thin rounded
+`UnlitMaterial` plate in the palette's `orangeHot`, driven by an
+`OpacityComponent`) — the same doctrine as the focus rim (DD-010), never a USDZ
+material edit. The skirt is parented to the pad's PARENT at the pad's REST
+transform, so it does **not** travel: the keycap visibly sinks toward its own glow
+(a mechanical read), instead of a cap-parented plate sinking into the top plate at
+peak brightness (1.1–1.3 mm of travel). Intensity is a **quadratic** map of
+observed velocity (`padLEDOpacity`, 0.16 … 0.90), so soft hits read soft. Rise is
+**instantaneous** (a real LED has no attack); after the observed Note Off it
+decays **exponentially** (`padLEDDecayTau` 0.09 s, ~0.25 s tail) on the render-loop
+tick, which early-outs when nothing is decaying (ring-rig idle philosophy).
+
+**Brief §6 asymmetry, pinned by a test.** Velocity drives LED intensity (~5.6x
+span) far more than physical travel (~1.18x span, `travelDepth` 1.1–1.3 mm).
+`HaloMechanicsVelocityTests` fails if that inequality ever regresses — same spirit
+as the DD-010 reflection guard. LED colour is `orangeHot` (a momentary observed
+event); the rim stays plain `orange` (latched/inferred) — a two-tier vocabulary.
+A palette flip recolours live LEDs and rims together.
+
+**Polyphonic travel.** Live pad travel is now driven by **raw Note On/Off** fed
+straight from `HaloAppModel.receive(event)` to `EP40SceneController.padNoteOn/Off`,
+alongside (not through) the display state. `PadHoldRegistry` (pure, unit-tested)
+refcounts holds **per physical pad** using a set of `(channel, note)` keys — robust
+to the real quirk that two group notes (e.g. 36 and 48) map to the **same** pad; it
+releases only when the LAST hold ends. Policy: a duplicate strike on an already-held
+key is a **restrike** (LED re-flash at the newly observed velocity, no further
+travel); **latest observed velocity wins** (no max-hold — that would invent a level
+the device never reported); notes outside 36…83 do nothing. Travel and display can
+never disagree because both map through `EP40MIDIMapping.gridIndex` →
+`EP40Entity.padGridOrder`.
+
+**Projection is now PREVIEW-only.** `EP40ControlProjection.pressedPad` →
+`previewPressedPad`, set only in `.preview`; in `.live` it is nil (raw notes own
+travel), `.waiting` stays at rest. The deterministic PREVIEW demo remains the only
+projection-driven travel and is still labelled PREVIEW — it also shows the LED
+language now (pressed at the frame's velocity). Disconnect / reconnect calls
+`scene.releaseAllPads()` in both branches (clears every hold, travel, and LED)
+before presenting, so nothing survives a connection change.
+
+**Accepted risk:** the `bufferingNewest(512)` observation stream can drop a Note
+Off under pathological flood, potentially leaving a hold until the next connection
+change — identical exposure to the existing `heldMIDIKeys` display readout; no new
+mitigation invented. Out of scope: the 2D `MechanicalButtonStyle` (no 2D velocity
+producer) and group-pad/button LEDs (no observed per-control velocity source) — the
+animator API supports them for free later.
+
 ---
 
 _Open decisions awaiting evidence:_

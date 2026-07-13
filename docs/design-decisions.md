@@ -218,6 +218,42 @@ keyboard-focus is deferred — there is no 3D focus model yet; 2D covers keyboar
 focus. (3) 3D "disabled" is defined as "no hover/press response + rim suppressed"
 (no dimming of USDZ materials); no disabled model controls exist in Phase 1.
 
+## DD-011 · Halo ring: 48-segment Halo-owned rig, luminance via OpacityComponent, state from connection truth
+
+The `halo_ring` glow is a Halo-owned rig (`HaloRingRig`), a `halo_ring_glow`
+parent with 48 `ModelEntity` segment boxes derived from the ring's `visualBounds`
+so it works identically for the Blender USDZ (a thin elliptical ink annulus) and
+the procedural fallback (a solid disc). It never mutates USDZ materials.
+**All luminance runs through `OpacityComponent` only** — the parent's opacity is
+the master luminance (one write for uniform states: connected, monitoring,
+recording, error), each segment's opacity is the pattern (only written by the
+discovering sweep and transfer progress). `OpacityComponent` composes
+multiplicatively down the hierarchy, so uniform states cost exactly one component
+write per ≤60 Hz tick. Per-state colour is a shared `UnlitMaterial`
+(orange / orangeHot / warning) reassigned only on state-colour or palette change,
+never per frame.
+
+Ring **state is derived only from `HaloRingState.derive` over real inputs**
+(observer running, endpoint connected, real error label; monitor/record/transfer
+fields have no producers yet) — never from `EP40DisplayState` preview/demo frames
+(Brief §1/§4). The only real error reachable today is CoreMIDI client setup
+failure (`ringErrorLabel = "MIDI"`). The animation is driven off a
+`SceneEvents.Update` subscription (render loop, not a timer); static states
+early-out on `needsTick == false`. The error state pulses exactly once on a new
+error, then holds a stable labelled state forever. Reduce Motion pauses the
+discovering sweep and recording breath (the status-bar timer carries the
+information). Audio-responsive `.monitoring` luminance is the ONLY audio→RealityKit
+path and goes bridge (`AudioLevelBridge`, lock-free atomic) → main-actor tick
+(`RingLuminanceSmoother`, 50 ms attack / 350 ms release) → `OpacityComponent`,
+coalesced to ≤60 Hz and hard-capped at 0.55.
+
+**OpacityComponent fallback:** if `OpacityComponent` proves inert over
+`UnlitMaterial` on this OS, switch the parent to a transparent-blending material
+whose opacity is patched at ≤60 Hz — still never per-segment material allocation
+per frame. The disconnected state leaves the USDZ ink annulus untouched (glow
+parent opacity 0); the optional 0.55 ink-softening was skipped because an
+`OpacityComponent` on the ring entity would also scale its glow-parent child.
+
 ---
 
 _Open decisions awaiting evidence:_

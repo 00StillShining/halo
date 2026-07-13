@@ -21,6 +21,9 @@ final class HaloAppModel {
     }
 
     private(set) var displayState = EP40DisplayState.previewStill
+    /// Halo-ring state, derived only from connection/monitor/record truth
+    /// (Brief §5). Never derived from `displayState` preview/demo frames.
+    private(set) var ringState: HaloRingState = .disconnected
     private(set) var deviceStatus = "NO DEVICE"
     private(set) var firmwareStatus = "—"
     private(set) var usbStatus = "IDLE"
@@ -31,6 +34,11 @@ final class HaloAppModel {
     var isDisplayLive: Bool { displayState.feedMode == .live }
 
     private var midiObserver: EP40MIDIObserver?
+    /// The only real ring failure reachable today (CoreMIDI client setup). Real
+    /// failures only — never a decorative error (Brief §4).
+    private var ringErrorLabel: String?
+    /// Last observed endpoint-connected truth; the ring reads this, not strings.
+    private var endpointConnected = false
     private var midiDeliveryTask: Task<Void, Never>?
     private var heldMIDIKeys: [HeldMIDIKey] = []
     private var clockCount = 0
@@ -58,11 +66,32 @@ final class HaloAppModel {
                     }
                 }
             }
+            // Client is alive and watching but no EP-40 endpoint yet → discovering.
+            ringErrorLabel = nil
+            refreshRingState()
         } catch {
             usbStatus = "MIDI ERROR"
             displayStatus = "PREVIEW"
+            ringErrorLabel = "MIDI"
+            refreshRingState()
             present(.previewStill)
         }
+    }
+
+    /// Rebuild the ring state from real inputs and push it to the scene. Called on
+    /// connection lifecycle changes only — connection state does not change per
+    /// MIDI note, so this is never called from the hot event path (Brief §8).
+    private func refreshRingState() {
+        let inputs = HaloRingState.Inputs(
+            observerRunning: midiObserver != nil,
+            endpointConnected: endpointConnected,
+            errorLabel: ringErrorLabel
+            // monitorEngaged / recordingStartedAt / transferProgress have no
+            // producers yet (no audio engine; device transfer is Phase 0B), so
+            // those states are correctly unreachable.
+        )
+        ringState = HaloRingState.derive(inputs)
+        scene.applyRing(ringState)
     }
 
     /// Automatic, deterministic disconnected demo. SwiftUI cancels this as
@@ -88,6 +117,7 @@ final class HaloAppModel {
 
     private func receive(_ connection: EP40MIDIConnection) {
         midiEndpointName = connection.displayName
+        endpointConnected = connection.isConnected
         if connection.isConnected {
             deviceStatus = "CONNECTED"
             usbStatus = "MIDI"
@@ -102,6 +132,7 @@ final class HaloAppModel {
             resetClockTracking()
             present(.previewStill)
         }
+        refreshRingState()
     }
 
     private func receive(_ event: EP40MIDIEvent) {

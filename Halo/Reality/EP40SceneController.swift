@@ -15,10 +15,17 @@ final class EP40SceneController {
     private(set) var modelRoot: Entity?
     private var displayRenderer: EP40DisplayRenderer?
     private var pendingDisplay = EP40DisplayState.previewStill
+    private var pendingRing = HaloRingState.disconnected
     private var sceneGeneration = 0
     private let keyAnimator = KeyTravelAnimator()
+    private let ringRig = HaloRingRig()
     private var controls = EP40ControlProjection.rest
     private var palette: HaloPalette = .graphPaper
+    private var reduceMotion = false
+
+    /// Held by `EP40StageView` so the SceneEvents.Update subscription that drives
+    /// the ring tick lives as long as the RealityView content.
+    var ringSubscription: EventSubscription?
 
     /// Build the full scene (model + lights + camera) into a world root and return it.
     func makeScene() async -> Entity {
@@ -56,6 +63,14 @@ final class EP40SceneController {
             keyAnimator.bind(pressables.compactMap { result.resolved[$0] })
             keyAnimator.setAccent(.rk(palette.rimAccentHex))
             controls = .rest
+            // Halo-ring glow rig (Brief §5). Bound under the same generation guard
+            // so a superseded load never rebinds the live rig. State is applied
+            // from connection truth via `applyRing`, never from display frames.
+            if let ring = result.resolved[.haloRing] {
+                ringRig.bind(ring: ring, palette: palette)
+                ringRig.setReduceMotion(reduceMotion)
+                ringRig.apply(pendingRing)
+            }
             renderer?.submit(pendingDisplay)
             updateControls(for: pendingDisplay)
         }
@@ -67,6 +82,28 @@ final class EP40SceneController {
     func applyPalette(_ palette: HaloPalette) {
         self.palette = palette
         keyAnimator.setAccent(.rk(palette.rimAccentHex))
+        ringRig.setPalette(palette)
+    }
+
+    /// Drive the halo-ring glow from connection/monitor/record truth (Brief §5).
+    /// Safe before or after the USDZ finishes loading — the latest state wins.
+    func applyRing(_ state: HaloRingState) {
+        pendingRing = state
+        ringRig.apply(state)
+    }
+
+    /// Plumbed from `HaloRootView`'s Reduce-Motion environment value: pauses the
+    /// discovering sweep and recording breath (information is carried by the
+    /// static glow / status-bar timer instead).
+    func setReduceMotion(_ on: Bool) {
+        reduceMotion = on
+        ringRig.setReduceMotion(on)
+    }
+
+    /// Called once per render frame from the RealityView update subscription.
+    /// Static ring states early-out inside the rig at near-zero cost.
+    func ringTick(deltaTime: Float) {
+        ringRig.tick(deltaTime: deltaTime)
     }
 
     func entity(_ e: EP40Entity) -> Entity? { resolved[e] }

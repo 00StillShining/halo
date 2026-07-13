@@ -18,6 +18,7 @@ struct HaloRootView: View {
                 displayStatus: model.displayStatus,
                 isDisplayLive: model.isDisplayLive,
                 midiEndpointName: model.midiEndpointName,
+                ringState: model.ringState,
                 palette: model.palette,
                 onSelectPalette: { model.selectPalette($0) }
             )
@@ -27,7 +28,11 @@ struct HaloRootView: View {
         .focusEffectDisabled()
         .background(HaloColorTokens.tokens(for: model.palette).canvas)
         .onAppear {
+            model.scene.setReduceMotion(reduceMotion)
             model.startEP40Monitoring()
+        }
+        .onChange(of: reduceMotion) { _, newValue in
+            model.scene.setReduceMotion(newValue)
         }
         .task(id: displayLifecycle) {
             await model.runDisplayPreview(

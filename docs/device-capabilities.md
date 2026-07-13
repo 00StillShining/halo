@@ -54,6 +54,7 @@ Status legend:
 | Pad-assignment read | UNKNOWN | Phase 0B | — |
 | Pad-assignment write | UNKNOWN | Phase 0B | — |
 | SysEx framing / device ID / checksum / ack | UNKNOWN — community EP-133/1320 notes are orientation only | Phase 0B | — |
+| halo-ring `.transfer` state — real progress | needsDevice — requires the proprietary transfer protocol (Phase 0B). UI complete (`HaloRingRig` renders the clockwise progress ring + `HALO` chip `TX %`), producer absent. | Phase 0B | 2026-07-13 |
 
 ## Firmware / general
 

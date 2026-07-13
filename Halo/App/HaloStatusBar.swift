@@ -12,6 +12,7 @@ struct HaloStatusBar: View {
     var displayStatus: String
     var isDisplayLive: Bool
     var midiEndpointName: String?
+    var ringState: HaloRingState
     var palette: HaloPalette
     var onSelectPalette: (HaloPalette) -> Void
 
@@ -27,6 +28,7 @@ struct HaloStatusBar: View {
             statusChip(label: "FW", value: firmwareStatus, accent: false)
             statusChip(label: "USB", value: usbStatus, accent: false)
             statusChip(label: "DISPLAY", value: displayStatus, accent: isDisplayLive)
+            statusChip(label: "HALO", value: ringState.statusWord, tint: haloChipTint)
 
             Spacer()
 
@@ -44,8 +46,8 @@ struct HaloStatusBar: View {
             }
 
             statusChip(label: "OUTPUT", value: "MACBOOK AIR", accent: false)
-            statusChip(label: "MONITOR", value: "OFF", accent: false)
-            statusChip(label: "REC", value: "—", accent: false)
+            statusChip(label: "MONITOR", value: monitorWord, accent: ringState == .monitoring)
+            recChip
 
             paletteSwitcher
         }
@@ -76,8 +78,50 @@ struct HaloStatusBar: View {
         }
     }
 
+    // Green when the ring reports an active link/monitor/record/transfer, warning
+    // when a real failure is observed, plain ink for dark/scan. Tokens only.
+    private var haloChipTint: Color? {
+        if ringState.isError { return c.warning }
+        switch ringState {
+        case .connected, .monitoring, .recording, .transfer: return c.riddimGreen
+        default: return nil
+        }
+    }
+
+    // Honest MONITOR word — there is no audio engine yet, so this only reads MON
+    // when a real monitor producer drives the ring (unreachable today).
+    private var monitorWord: String { ringState == .monitoring ? "ON" : "OFF" }
+
+    // REC chip: an unambiguous mm:ss timer while recording, otherwise idle.
+    // Only the recording branch pulls in a TimelineView so the static bar stays
+    // render-free. // Brief §7 utility rail: the timer moves there once it lands.
     @ViewBuilder
-    private func statusChip(label: String, value: String, accent: Bool) -> some View {
+    private var recChip: some View {
+        if case let .recording(startedAt) = ringState {
+            HStack(spacing: 6) {
+                Text("REC")
+                    .font(HaloType.label(9))
+                    .haloLabelCase()
+                    .foregroundStyle(c.inkSoft.opacity(0.7))
+                TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                    Text(Self.elapsed(from: startedAt, to: context.date))
+                        .font(HaloType.mono(11, weight: .medium))
+                        .foregroundStyle(c.orangeHot)
+                }
+            }
+        } else {
+            statusChip(label: "REC", value: "—", accent: false)
+        }
+    }
+
+    private static func elapsed(from start: Date, to now: Date) -> String {
+        let total = max(0, Int(now.timeIntervalSince(start)))
+        return String(format: "%02d:%02d", total / 60, total % 60)
+    }
+
+    @ViewBuilder
+    private func statusChip(label: String, value: String,
+                            accent: Bool = false, tint: Color? = nil) -> some View {
         HStack(spacing: 6) {
             Text(label)
                 .font(HaloType.label(9))
@@ -85,7 +129,7 @@ struct HaloStatusBar: View {
                 .foregroundStyle(c.inkSoft.opacity(0.7))
             Text(value)
                 .font(HaloType.mono(11, weight: .medium))
-                .foregroundStyle(accent ? c.riddimGreen : c.ink)
+                .foregroundStyle(tint ?? (accent ? c.riddimGreen : c.ink))
         }
     }
 }

@@ -31,6 +31,15 @@ struct EP40StageView: View {
                 RealityView { content in
                     let world = await controller.makeScene()
                     content.add(world)
+                    // Drive the halo-ring animation off the render loop, not a
+                    // timer. Static ring states early-out in the rig at ~zero cost.
+                    controller.ringSubscription = content.subscribe(
+                        to: SceneEvents.Update.self
+                    ) { event in
+                        MainActor.assumeIsolated {
+                            controller.ringTick(deltaTime: Float(event.deltaTime))
+                        }
+                    }
                     Task { @MainActor [weak controller] in
                         do { try await Task.sleep(for: .milliseconds(50)) } catch { return }
                         controller?.activateDisplayStreaming()

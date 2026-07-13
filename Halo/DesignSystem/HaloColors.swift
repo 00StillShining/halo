@@ -85,6 +85,15 @@ extension HaloPalette {
         case .bonePaper:  0xFF4A00
         }
     }
+
+    /// Halo-ring accent hexes for RealityKit `UnlitMaterial`s (the ring is
+    /// Halo-owned geometry, not a SwiftUI view). `orangeHex` shares the
+    /// `orange` token literal with `rimAccentHex`; the hot/warning hexes are
+    /// kept in lockstep with the `orangeHot:` / `warning:` values in
+    /// `HaloColorTokens` above — change both together.
+    var orangeHex: UInt32    { rimAccentHex }
+    var orangeHotHex: UInt32 { 0xFF6A2A }
+    var warningHex: UInt32   { 0xD94A24 }
 }
 
 // MARK: - Environment plumbing

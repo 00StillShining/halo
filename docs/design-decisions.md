@@ -138,6 +138,38 @@ origin.
 session. Proceeding on Phase 1 (visual north star, mock data), which by design
 depends on neither the hardware nor the Blender asset.
 
+### DD-009 · Verification harness + HaloTests unit-test target
+**2026-07-13.** Established the loop's own functional gate (Brief §10). The MIDI
+interpretation that drives the replica display (note→group range, velocity-0 ==
+Note-Off, and the documented-order→physical-grid mapping) was extracted from
+`HaloAppModel`/`EP40MIDIObserver` into a single pure namespace,
+`Halo/Device/EP40MIDIMapping.swift`, so production code and tests agree by
+construction (no duplicated tables). Added a `HaloTests`
+`com.apple.product-type.bundle.unit-test` target by hand-editing
+`project.pbxproj` (synchronized `HaloTests/` group, `TEST_HOST`/`BUNDLE_LOADER`
+pointed at `Halo.app`, wired into the shared scheme's `TestAction`); with
+objectVersion-77 synchronized groups new test files are auto-included. First 10
+XCTest cases cover the three required invariants plus the pad-grid round-trip
+against `EP40Entity.padGridOrder`; `xcodebuild … test` is green.
+`tools/dev/mock_midi_send.swift` publishes a CoreMIDI **virtual source** named
+"EP-40 Mock Source" (group-A notes 36…47) purely as a developer stimulus — the
+app still reaches LIVE only because it observed real MIDI, preserving the §1/§4
+honesty boundary. `tools/dev/verify.sh` runs build → ~5s launch → no-crash
+assertion, optionally driving the mock source. No device-gated work was touched.
+
+**Overseer addendum (same day).** `TEST_HOST` runs the full app binary, and the
+window's async USDZ import (CoreRealityIO live-scene-update queue) raced the
+test host's exit — XCTest quits milliseconds after the last test — segfaulting
+inside `UsdSchemaRegistry::FindSchemaInfo` and depositing a `Halo-*.ips` crash
+report on every `xcodebuild test` run (which would also poison the harness's
+own crash-report gate). Fixed in `HaloApp`: when the process is the XCTest host
+(`XCTestConfigurationFilePath`/`XCTestBundlePath`/`XCTestSessionIdentifier` in
+the environment) the window shows a static placeholder instead of booting the
+RealityKit stage. Unit tests exercise pure logic, never the scene, so nothing
+real is hidden. Also observed: macOS can take ~25–40 s to flush a crash report,
+so verify.sh's process-liveness check during the smoke window is the primary
+signal; the report count is secondary coverage.
+
 ---
 
 _Open decisions awaiting evidence:_

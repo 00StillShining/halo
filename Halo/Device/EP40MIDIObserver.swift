@@ -310,11 +310,11 @@ final class EP40MIDIObserver: @unchecked Sendable {
             let channel = message.channelVoice1.channel
             switch message.channelVoice1.status {
             case .noteOn:
-                let note = message.channelVoice1.note.number
-                let velocity = message.channelVoice1.note.velocity
-                decoded = velocity == 0
-                    ? .noteOff(channel: channel, note: note)
-                    : .noteOn(channel: channel, note: note, velocity: velocity)
+                decoded = EP40MIDIMapping.normalizedNoteMessage(
+                    channel: channel,
+                    note: message.channelVoice1.note.number,
+                    velocity: message.channelVoice1.note.velocity
+                )
             case .noteOff:
                 decoded = .noteOff(
                     channel: channel,

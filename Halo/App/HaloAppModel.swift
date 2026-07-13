@@ -221,17 +221,17 @@ final class HaloAppModel {
     }
 
     private func applyPadMapping(for note: UInt8, to state: inout EP40DisplayState) {
-        guard (36...83).contains(note) else {
+        // Group from note range and physical grid position are conservative,
+        // documented inferences shared with the unit tests (EP40MIDIMapping).
+        guard let group = EP40MIDIMapping.group(forNote: note),
+              let gridIndex = EP40MIDIMapping.gridIndex(forNote: note)
+        else {
             state.activeGroup = nil
             state.activePadIndex = nil
             return
         }
-        let offset = Int(note) - 36
-        state.activeGroup = offset / 12
-        // Convert documented MIDI order (dot, 0, enter, 1...9) into the
-        // physical four-row layout used by the miniature pad indicator.
-        let midiOffsetToGrid = [9, 10, 11, 6, 7, 8, 3, 4, 5, 0, 1, 2]
-        state.activePadIndex = midiOffsetToGrid[offset % 12]
+        state.activeGroup = group
+        state.activePadIndex = gridIndex
     }
 
     private func present(_ state: EP40DisplayState) {

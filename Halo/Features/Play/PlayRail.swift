@@ -1,16 +1,18 @@
 import SwiftUI
 
 /// PLAY rail (Brief §7). Fills the expanded 300 pt utility column with the full
-/// monitor / meter / transport anatomy. Honesty position (DD-013/DD-014): the
-/// audio engine is Phase 2, so MONITOR/RECORD/GRAB are disabled with real-reason
-/// captions, the output list is explicitly MOCK, and the meters rest at true
-/// `.silence` (a moving meter in the running app would be a faked hardware state).
-/// The gain fader IS enabled — it sets a real local preference and claims nothing
-/// about hardware (same honesty class as palette selection).
+/// monitor / meter / transport anatomy. Honesty position (DD-013/DD-014/DD-016):
+/// the audio ENGINE is Phase 2, so MONITOR/RECORD/GRAB stay disabled with real
+/// reason captions and the meters rest at true `.silence` (a moving meter would be
+/// a faked hardware state). The output picker is now REAL — it lists live Core
+/// Audio devices by stable UID (`AudioDeviceDiscovery`) and persists the user's
+/// choice — but it changes nothing about the system: routing itself is Phase 2 and
+/// the system default output is never touched. The gain fader sets a real local
+/// preference and claims nothing about hardware.
 struct PlayRail: View {
     @Environment(\.halo) private var c
+    @Environment(HaloAppModel.self) private var model
     @State private var monitorGainDB = -12.0            // Brief §7 workflow: safe −12 dB
-    @State private var outputIndex = 0                  // MOCK selection, local UI only
 
     var body: some View {
         VStack(spacing: HaloMetrics.s2) {
@@ -23,8 +25,11 @@ struct PlayRail: View {
 
                     Rectangle().fill(c.ink.opacity(0.12)).frame(height: HaloMetrics.hairline)
 
-                    OutputSelectRow(selection: $outputIndex)
-                    RailCaption("MOCK LIST — REAL ROUTING PHASE 2")
+                    OutputDevicePicker(
+                        snapshot: model.audioDevices.snapshot,
+                        selection: model.audioOutput
+                    )
+                    RailCaption("LIVE CORE AUDIO DEVICES — ROUTING SHIPS PHASE 2; SYSTEM DEFAULT UNCHANGED")
 
                     Rectangle().fill(c.ink.opacity(0.12)).frame(height: HaloMetrics.hairline)
 
@@ -56,68 +61,92 @@ struct PlayRail: View {
             }
         }
     }
-
 }
 
-/// MOCK monitor output routing. Real CoreAudio enumeration is Phase 2 work and
-/// would make headless screenshots machine-dependent — the `(MOCK)` suffix keeps
-/// it honest. Selection is genuine local UI state.
-enum MockMonitorRig {
-    static let outputs = ["EP-40 USB (MOCK)", "BUILT-IN OUTPUT (MOCK)"]
-}
-
-/// An interactive output picker built from tokens — no stock `Picker`/`Menu`
-/// (forbidden shortcut) and no popover (Escape semantics stay trivial). Clicking
-/// the value expands an inline disclosure list inside the panel; the expanded list
-/// registers as a transient so Escape collapses it. The selected row gets the 1 px
-/// orange rim inset (the `mechanicalSelected` visual language).
-private struct OutputSelectRow: View {
+/// Real monitor-output picker built from tokens — no stock `Picker`/`Menu`
+/// (forbidden shortcut) and no popover (Escape stays trivial). It lists the live
+/// output-capable Core Audio devices from the discovery snapshot and binds the
+/// selection to STABLE UIDs via `AudioOutputSelection`. The resolved row states
+/// honestly whether the highlighted device is the user's own pick or a system
+/// default fallback (when their remembered device is currently absent). Selecting
+/// persists a UID for the Phase 2 route; it never changes the system default.
+private struct OutputDevicePicker: View {
     @Environment(\.halo) private var c
-    @Binding var selection: Int
+    let snapshot: AudioDeviceSnapshot
+    let selection: AudioOutputSelection
     @State private var expanded = false
+
+    private var resolution: AudioOutputResolution {
+        selection.resolution(in: snapshot)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: HaloMetrics.s1) {
             Button {
+                guard !snapshot.outputs.isEmpty else { return }
                 expanded.toggle()
             } label: {
-                HStack {
+                HStack(spacing: HaloMetrics.s2) {
                     Text("OUTPUT")
                         .font(HaloType.mono(11))
                         .foregroundStyle(c.inkSoft)
                     Spacer(minLength: HaloMetrics.s2)
-                    Text(MockMonitorRig.outputs[selection])
+                    Text(resolution.device?.name ?? "NO OUTPUT DEVICE")
                         .font(HaloType.mono(11))
-                        .foregroundStyle(c.ink)
+                        .foregroundStyle(resolution.device == nil ? c.inkSoft : c.ink)
                         .lineLimit(1).truncationMode(.middle)
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(c.inkSoft)
+                        .opacity(snapshot.outputs.isEmpty ? 0.3 : 1)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(snapshot.outputs.isEmpty)
+
+            // Honest provenance + real device facts for the resolved output. The
+            // fallback tag names the ACTUAL fallback rule that fired: `.fallbackFirst`
+            // is not the system default, so it must not claim to be (Brief §1/§4).
+            if let device = resolution.device {
+                HStack(spacing: HaloMetrics.s1) {
+                    switch resolution {
+                    case .fallbackDefault: RailTag("SYSTEM DEFAULT")
+                    case .fallbackFirst: RailTag("AUTO FALLBACK")
+                    case .preferred, .none: EmptyView()
+                    }
+                    Spacer(minLength: 0)
+                    Text(Self.detail(for: device))
+                        .font(HaloType.mono(10))
+                        .foregroundStyle(c.inkSoft)
+                }
+            }
 
             if expanded {
                 VStack(spacing: 2) {
-                    ForEach(Array(MockMonitorRig.outputs.enumerated()), id: \.offset) { idx, name in
+                    ForEach(snapshot.outputs) { device in
+                        let isSelected = resolution.device?.uid == device.uid
                         Button {
-                            selection = idx
+                            selection.select(device.uid)
                             expanded = false
                         } label: {
                             HStack {
-                                Text(name)
+                                Text(device.name)
                                     .font(HaloType.mono(10))
                                     .foregroundStyle(c.ink)
-                                Spacer(minLength: 0)
+                                    .lineLimit(1).truncationMode(.middle)
+                                Spacer(minLength: HaloMetrics.s1)
+                                Text(Self.detail(for: device))
+                                    .font(HaloType.mono(9))
+                                    .foregroundStyle(c.inkSoft)
                             }
                             .padding(.vertical, 4)
                             .padding(.horizontal, HaloMetrics.s1)
                             .background(
                                 RoundedRectangle(cornerRadius: HaloMetrics.radiusSmall)
-                                    .fill(selection == idx ? c.paperHigh : c.paper.opacity(0.5)))
+                                    .fill(isSelected ? c.paperHigh : c.paper.opacity(0.5)))
                             .overlay {
-                                if selection == idx {
+                                if isSelected {
                                     RoundedRectangle(cornerRadius: HaloMetrics.radiusSmall)
                                         .stroke(c.orange, lineWidth: HaloMechanics.rimWidth)
                                         .padding(1)
@@ -132,16 +161,46 @@ private struct OutputSelectRow: View {
             }
         }
     }
+
+    /// Real, device-reported facts: current nominal rate + output channel count.
+    private static func detail(for device: AudioDevice) -> String {
+        let khz = device.currentSampleRate / 1_000
+        let rate = khz.rounded() == khz
+            ? String(format: "%.0f KHZ", khz)
+            : String(format: "%.1f KHZ", khz)
+        return "\(rate) · \(device.outputChannels) CH"
+    }
 }
 
 #if DEBUG
+extension AudioDeviceSnapshot {
+    /// Deterministic fixture so previews render without depending on the build
+    /// machine's real devices (and so nothing in a preview implies live hardware).
+    static let previewFixture = AudioDeviceSnapshot(
+        devices: [
+            AudioDevice(uid: "BuiltInSpeakerDevice", name: "MacBook Pro Speakers",
+                        inputChannels: 0, outputChannels: 2,
+                        currentSampleRate: 48_000, supportedSampleRates: [44_100, 48_000],
+                        bufferFrameRange: .init(minFrames: 15, maxFrames: 4096)),
+            AudioDevice(uid: "EP40-USB-UID", name: "EP-40 (MOCK)",
+                        inputChannels: 2, outputChannels: 2,
+                        currentSampleRate: 48_000, supportedSampleRates: [48_000],
+                        bufferFrameRange: .init(minFrames: 32, maxFrames: 2048)),
+        ],
+        defaultInputUID: nil,
+        defaultOutputUID: "BuiltInSpeakerDevice"
+    )
+}
+
 #Preview("PlayRail") {
-    ScrollView {
+    let model = HaloAppModel()
+    model.audioDevices.previewSeed(.previewFixture)
+    return ScrollView {
         PlayRail()
             .padding(HaloMetrics.s2)
     }
     .frame(width: 300, height: 620)
-    .environment(HaloAppModel())
+    .environment(model)
     .environment(\.halo, .graphPaper)
     .background(HaloColorTokens.graphPaper.paperHigh)
 }

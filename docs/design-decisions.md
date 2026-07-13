@@ -394,13 +394,19 @@ a faked hardware state. Phase 2 wires `AudioLevelBridge` values into this exact
 view with no other change. The `fraction(dB:)` mapping is pure and piecewise so
 each tick sits on its label (`StereoMeterTests`).
 
-**The gain fader is enabled; the output picker is MOCK; transport is disabled.**
+**The gain fader is enabled; the output picker lists LIVE Core Audio devices; transport is disabled.**
 `HaloFader` (DesignSystem, reusable for RACK) sets a real *local* −12 dB preference
 and claims nothing about hardware — same honesty class as palette selection, caption
-states when it takes effect. The output picker lists explicit `(MOCK)` entries
-(`MockMonitorRig`) via an inline disclosure (no stock `Picker`/`Menu`/popover); the
-expanded list registers as a transient so Escape collapses it. MONITOR/RECORD/GRAB
-are disabled keycaps with real-reason captions.
+states when it takes effect. The output picker lists the machine's real Core Audio
+output devices from `AudioDeviceDiscovery` and binds the selection to a STABLE device
+UID, not a display name (DD-016) — persisted through `AudioOutputSelection`. The layer
+is read-only: it never writes the system default, a fallback tag names the exact rule
+that fired (`SYSTEM DEFAULT`, or `AUTO FALLBACK` when no usable system default exists
+and the first output was chosen), and the caption keeps it honest — routing is Phase 2, so selecting
+only records the UID the monitor path *will* target and nothing is animated or claimed
+about hardware. The list renders via an inline disclosure (no stock `Picker`/`Menu`/
+popover); the expanded list registers as a transient so Escape collapses it.
+MONITOR/RECORD/GRAB are disabled keycaps with real-reason captions.
 
 **Pad file drops = presentation, not a hardware claim.** Numeric pads get trigger
 colliders in a dedicated `CollisionGroup.haloDropTargets`, installed in
@@ -455,6 +461,40 @@ height is the hidden-titlebar strip `screencapture -l` includes, not extra conte
 
 No palette deleted (both exercised through the real path and verified rendering). No
 device-gated work, no USDZ/generator change, no new target (no pbxproj edit).
+
+## DD-016 — Core Audio device discovery + honest output picker (P2-discovery)
+
+Brief §8 needs an output picker bound to STABLE device UIDs, plus observation of device-list /
+default-device / sample-rate changes. Split into a pure, tested core and a thin real-hardware
+shell:
+
+- `AudioDevice` / `AudioDeviceSnapshot` (`Halo/Audio/AudioDeviceModel.swift`) are pure value types
+  carrying only persistable facts (UID, name, in/out channels, current + supported nominal rates,
+  buffer-frame range) — never live `AudioObjectID`s (not stable, never persisted).
+- `AudioOutputResolver.resolve(preferredUID:snapshot:)` is a pure, non-isolated function: persisted
+  UID present → `.preferred`; else system default output → `.fallbackDefault`; else first output →
+  `.fallbackFirst`; no outputs → `.none`. Input-only devices are never chosen as an output. This is
+  the whole selection brain and is exhaustively unit-tested (`AudioOutputSelectionTests`, 10 cases)
+  with **zero** Core Audio dependency.
+- `AudioOutputSelection` (@MainActor @Observable) persists ONLY the UID through an `AudioPreferenceStore`
+  seam (UserDefaults in production, in-memory double in tests). Keys on UID, not display name.
+- `AudioDeviceDiscovery` (@MainActor @Observable) is the real HAL shell: enumerates devices, captures
+  facts via `CoreAudioEnumerator`, and installs property listeners (device list, default in/out, and a
+  per-device nominal-sample-rate listener reconciled on every device-list change). Listener blocks reach
+  the actor through a weak box + `Task { @MainActor }` hop (mirrors the MIDI observer). `start()`/`stop()`
+  are idempotent; listeners are removed with the exact blocks they were added with.
+
+Honesty (Brief §1/§4): the layer is **read-only** — it reflects real Core Audio truth and NEVER writes
+the system default input/output (a fallback row is tagged with the exact rule that fired —
+`SYSTEM DEFAULT` for the default-output fallback, `AUTO FALLBACK` when no usable system default
+exists and the first output was chosen — so the UI never implies the user picked it, and never
+labels a first-device fallback as the system default). The picker in `PlayRail` now lists LIVE devices
+instead of the old MOCK list, but the caption keeps it honest: routing itself is Phase 2 and selecting
+only records the UID the monitor path *will* target — nothing is animated or claimed about hardware.
+The EP-40's own audio input/output verification stays needs-device (Phase 0A); the enumeration MECHANISM
+is verified against this Mac's real devices. No palette touched; no device-gated protocol invented; no
+new target (both `Halo/` and `HaloTests/` are synchronized groups). MONITOR/METERS/RECORD/GRAB stay at
+their honest Phase 2 rest state.
 
 ---
 

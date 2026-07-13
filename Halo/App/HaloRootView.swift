@@ -59,6 +59,7 @@ struct HaloRootView: View {
         .onAppear {
             model.scene.setReduceMotion(reduceMotion)
             model.startEP40Monitoring()
+            model.startAudioDeviceDiscovery()
         }
         .onChange(of: reduceMotion) { _, newValue in
             model.scene.setReduceMotion(newValue)

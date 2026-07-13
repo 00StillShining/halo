@@ -16,6 +16,12 @@ final class HaloAppModel {
     /// never touches displayState / ringState / MIDI (DD-013/DD-014).
     let load = LoadSession()
 
+    /// Core Audio device discovery + the user's persisted monitor-output choice
+    /// (Brief §8). Read-only: discovery reflects real devices and never changes
+    /// the system default; selection persists a stable UID for the Phase 2 route.
+    let audioDevices = AudioDeviceDiscovery()
+    let audioOutput = AudioOutputSelection()
+
     // MARK: - Shell (Brief §7). UI-only state — a mode switch never touches
     // displayState / ringState / MIDI paths, so it cannot disturb PREVIEW / WAIT
     // / LIVE provenance (DD-013).
@@ -68,6 +74,13 @@ final class HaloAppModel {
     private var lastClockSeconds: Double?
     private var smoothedClockInterval: Double?
     private var lastNoteUptime = -Double.infinity
+
+    /// Begin Core Audio device discovery for the output picker (Brief §8). Read
+    /// only — installs property listeners and reflects real devices; it never
+    /// changes the system default input/output. Idempotent for the app lifetime.
+    func startAudioDeviceDiscovery() {
+        audioDevices.start()
+    }
 
     /// Starts once for the application lifetime. Closing/reopening a window must
     /// not dispose the process's sole CoreMIDI client.

@@ -21,8 +21,9 @@ Status legend:
 |---|---|---|---|
 | EP-40 exposed as USB audio **input** (stereo) | UNKNOWN | Phase 0A | — |
 | EP-40 exposed as USB audio **output** | UNKNOWN | Phase 0A | — |
-| Input channel count / supported rates / buffer ranges | UNKNOWN | Phase 0A | — |
-| Stable device UID captured | UNKNOWN | Phase 0A | — |
+| Input channel count / supported rates / buffer ranges | **MECHANISM IMPLEMENTED (P2, DD-016)** — `CoreAudioEnumerator` reads in/out channel counts, current + supported nominal rates and buffer-frame ranges for every device; verified against this Mac's real devices. The EP-40's *own* reported values still need the device. | DD-016 | 2026-07-14 |
+| Stable device UID captured | **MECHANISM IMPLEMENTED (P2, DD-016)** — `kAudioDevicePropertyDeviceUID` captured and persisted (never the display name); verified against this Mac's devices. The EP-40's own UID still needs the device. | DD-016 | 2026-07-14 |
+| Core Audio device-list / default-device / sample-rate change observation | **IMPLEMENTED (P2, DD-016)** — `AudioDeviceDiscovery` installs HAL property listeners and republishes a whole snapshot; read-only, never writes the system default. | DD-016 | 2026-07-14 |
 | End-to-end monitor latency @ Low/Balanced/Safe | UNKNOWN | Phase 0A | — |
 | 30-min uninterrupted monitor stability | UNKNOWN | Phase 0A | — |
 | 10× unplug/reconnect clean recovery | UNKNOWN | Phase 0A | — |

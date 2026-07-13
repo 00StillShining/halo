@@ -63,6 +63,20 @@ research uncertainty). The brief §6 was right: a front grille, and the audio-re
 placeholder updated accordingly. Real instanced perforations/stripes come with the
 final model.
 
+### DD-007 · Mechanical pad press-travel (RealityKit)
+**2026-07-13.** `KeyTravelAnimator` presses the active pad ~1.2 mm into the top
+plate (Brief §6: 55–75 ms ease-in down, 95–120 ms damped ease-out up) via
+`move(to:relativeTo:parent)`. Driven from `EP40SceneController.applyDisplay` off
+`EP40DisplayState.activePadIndex`, so it animates in BOTH preview and live with no
+extra plumbing. `EP40Entity.padGridOrder` maps the display's grid index → pad entity
+(kept consistent with `HaloAppModel.midiOffsetToGrid`). Single-active-pad for now
+(matches the collapsed display state); polyphonic travel later by feeding raw
+Note On/Off. Rest transforms captured once at bind time.
+**Verified** end-to-end: a mock CoreMIDI source (name contains "EP-40") drove the app
+to LIVE; with travel temporarily exaggerated, note 47 correctly depressed `pad_9`
+(right pad, downward). Test driver: `scratchpad/mock_midi_send.swift` (cycles pad
+notes) — a hardware-free way to exercise the reactive model; not yet in the repo.
+
 ### DD-006c · ORIENTATION CORRECTION — the EP-40 is PORTRAIT
 **2026-07-13.** A clean straight-on official product shot shows the EP-40 is operated
 **portrait** (taller than wide): **X width ≈ 176 mm, Z depth ≈ 240 mm**, thickness 16 mm.

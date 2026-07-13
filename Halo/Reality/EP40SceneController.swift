@@ -16,6 +16,8 @@ final class EP40SceneController {
     private var displayRenderer: EP40DisplayRenderer?
     private var pendingDisplay = EP40DisplayState.previewStill
     private var sceneGeneration = 0
+    private let keyAnimator = KeyTravelAnimator()
+    private var pressedPad: EP40Entity?
 
     /// Build the full scene (model + lights + camera) into a world root and return it.
     func makeScene() async -> Entity {
@@ -46,6 +48,8 @@ final class EP40SceneController {
             missing = result.missing
             modelRoot = result.root
             displayRenderer = renderer
+            keyAnimator.bind(EP40Entity.padGridOrder.compactMap { result.resolved[$0] })
+            pressedPad = nil
             renderer?.submit(pendingDisplay)
         }
         return world
@@ -57,6 +61,20 @@ final class EP40SceneController {
     func applyDisplay(_ state: EP40DisplayState) {
         pendingDisplay = state
         displayRenderer?.submit(state)
+        updatePadTravel(for: state)
+    }
+
+    /// Depress the single active pad and release the previous one. Works in both
+    /// PREVIEW and LIVE because both set `activePadIndex`. Polyphonic travel can
+    /// arrive later by feeding raw Note On/Off instead of the collapsed state.
+    private func updatePadTravel(for state: EP40DisplayState) {
+        let target: EP40Entity? = state.activePadIndex.flatMap { idx in
+            EP40Entity.padGridOrder.indices.contains(idx) ? EP40Entity.padGridOrder[idx] : nil
+        }
+        guard target != pressedPad else { return }
+        if let old = pressedPad, let e = resolved[old] { keyAnimator.release(e) }
+        if let new = target, let e = resolved[new] { keyAnimator.press(e) }
+        pressedPad = target
     }
 
     func activateDisplayStreaming() {

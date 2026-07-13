@@ -69,6 +69,13 @@ enum EP40Entity: String, CaseIterable, Sendable {
     static let numericPadsInNoteOrder: [EP40Entity] =
         [.padDot, .pad0, .padEnter, .pad1, .pad2, .pad3, .pad4, .pad5, .pad6, .pad7, .pad8, .pad9]
 
+    /// The twelve numeric pads in physical 3×4 grid order (row-major, index 0–11
+    /// top-left → bottom-right): 7 8 9 / 4 5 6 / 1 2 3 / . 0 ENTER. This is the
+    /// order `EP40DisplayState.activePadIndex` uses (see HaloAppModel.midiOffsetToGrid),
+    /// so `padGridOrder[activePadIndex]` is the pad to animate.
+    static let padGridOrder: [EP40Entity] =
+        [.pad7, .pad8, .pad9, .pad4, .pad5, .pad6, .pad1, .pad2, .pad3, .padDot, .pad0, .padEnter]
+
     static let groupPads: [EP40Entity] = [.groupA, .groupB, .groupC, .groupD]
 
     static let knobs: [EP40Entity] = [.knobVolume, .knobX, .knobY]

@@ -40,6 +40,11 @@ enum HaloMechanics {
     static let padLEDDecayTau: Float = 0.09       // s; exponential — ~0.25 s visible tail
     static let padLEDSkirtMargin: Float = 0.0008  // 0.8 mm light spill beyond the cap
     static let padLEDSkirtLift: Float = 0.0004    // sits above the deck; no z-fighting
+
+    // Mode change (Brief §7). One duration shared by the rail-width animation and
+    // the camera move so the whole gesture reads as a single mechanical motion —
+    // the model slides over, the screen is never replaced.
+    static let modeChangeDuration: Double = 0.45
 }
 
 /// Brief §5 halo-ring behaviour constants. Single source of truth for the

@@ -36,4 +36,21 @@ enum HaloMetrics {
     // Contextual right rail width band (~34–40% in data-heavy modes).
     static let railMinFraction: CGFloat = 0.34
     static let railMaxFraction: CGFloat = 0.40
+
+    // Rail width policy (Brief §7).
+    static let railDataFraction: CGFloat = 0.37   // target inside the 0.34–0.40 band
+    static let railPlayWidth: CGFloat = 300        // Play's light utility column
+    static let railSpineWidth: CGFloat = 28        // collapsed Play spine
+
+    /// Data-heavy rail width for a given window width, clamped to the 0.34–0.40 band.
+    static func dataRailWidth(total: CGFloat) -> CGFloat {
+        min(max(total * railDataFraction, total * railMinFraction),
+            total * railMaxFraction)
+    }
+
+    // Bottom mode bar.
+    static let modeBarHeight: CGFloat = 56
+
+    // Hard offset panel shadow (key light upper-left, blur 0).
+    static let panelShadow = CGSize(width: 3, height: 6)
 }

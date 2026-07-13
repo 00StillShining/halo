@@ -12,6 +12,25 @@ final class HaloAppModel {
     var palette: HaloPalette = .graphPaper
     let scene = EP40SceneController()
 
+    // MARK: - Shell (Brief §7). UI-only state — a mode switch never touches
+    // displayState / ringState / MIDI paths, so it cannot disturb PREVIEW / WAIT
+    // / LIVE provenance (DD-013).
+
+    private(set) var mode: HaloMode = .play      // Play is the daily default
+    var isPlayRailCollapsed = true               // Play: the model is the hero by default
+    let rackAvailable = false                    // flips at Phase 5a
+    let transients = TransientCoordinator()
+
+    /// Switch modes. Ignores no-ops and any mode not currently in the mode bar.
+    /// Re-frames the hero model (camera move) — it never releases pads or touches
+    /// display / ring state.
+    func select(_ mode: HaloMode) {
+        guard mode != self.mode,
+              HaloMode.visible(rackAvailable: rackAvailable).contains(mode) else { return }
+        self.mode = mode
+        scene.focusCamera(for: mode)
+    }
+
     /// Owner picks a palette at the Phase 1 visual gate. Recolours the 3D focus
     /// rims to match; the SwiftUI subtree recolours through `\.halo` automatically.
     func selectPalette(_ palette: HaloPalette) {

@@ -22,6 +22,11 @@ final class EP40SceneController {
     private var controls = EP40ControlProjection.rest
     private var palette: HaloPalette = .graphPaper
     private var reduceMotion = false
+    /// The hero camera, resolved once the scene is built. `pendingMode` lets a
+    /// mode selected before the USDZ finishes loading apply its framing on load
+    /// (same late-load pattern as `pendingDisplay` / `pendingRing`).
+    private var cameraEntity: Entity?
+    private var pendingMode: HaloMode = .play
     /// Polyphonic live pad travel: raw Note On/Off refcounted per physical pad
     /// (two group notes can map to one pad). Preview travel still goes through the
     /// projection; live travel goes through here (Brief §6, DD-012).
@@ -48,9 +53,10 @@ final class EP40SceneController {
             renderer = nil
         }
 
+        let cam = Self.makeHeroCamera()
         world.addChild(result.root)
         world.addChild(Self.makeLightingRig())
-        world.addChild(Self.makeHeroCamera())
+        world.addChild(cam)
 
         // A cancelled/replaced RealityView may finish loading after its successor.
         // Only the latest generation is allowed to become the update target.
@@ -60,6 +66,9 @@ final class EP40SceneController {
             missing = result.missing
             modelRoot = result.root
             displayRenderer = renderer
+            // Apply any mode framing chosen before the USDZ finished loading.
+            cameraEntity = cam
+            cam.transform = Self.heroTransform(Self.framing(for: pendingMode))
             // Bind ALL pressables now (was pads only) so mode buttons, group pads
             // and transport can travel/light. Reverse map lets a hit or lookup
             // resolve back to its contract entity without searching the tree.
@@ -230,7 +239,7 @@ final class EP40SceneController {
         return cam
     }
 
-    static func heroPosition(radius r: Float, yawDeg: Float, pitchDeg: Float) -> SIMD3<Float> {
+    nonisolated static func heroPosition(radius r: Float, yawDeg: Float, pitchDeg: Float) -> SIMD3<Float> {
         let yaw = yawDeg * .pi / 180
         let pitch = pitchDeg * .pi / 180
         return [
@@ -238,5 +247,55 @@ final class EP40SceneController {
             r * sin(pitch),
             r * cos(pitch) * cos(yaw),
         ]
+    }
+
+    // MARK: - Mode framing (Brief §7). A mode change re-frames the hero model with
+    // a subtle camera move — never a scene replacement. All framings sit within a
+    // few degrees of the hero view; `.play` equals the original hero values so the
+    // default view is pixel-identical.
+
+    struct ModeFraming: Equatable, Sendable {
+        var radius: Float
+        var yawDeg: Float
+        var pitchDeg: Float
+    }
+
+    nonisolated static func framing(for mode: HaloMode) -> ModeFraming {
+        switch mode {
+        case .play:    ModeFraming(radius: 0.70, yawDeg: 28, pitchDeg: 42)  // current hero — unchanged
+        case .load:    ModeFraming(radius: 0.72, yawDeg: 22, pitchDeg: 48)  // slightly top-down: pads read as drop targets
+        case .edit:    ModeFraming(radius: 0.66, yawDeg: 34, pitchDeg: 38)  // a touch closer / sider
+        case .capture: ModeFraming(radius: 0.74, yawDeg: 28, pitchDeg: 40)  // pulled back, calm
+        case .rack:    ModeFraming(radius: 0.72, yawDeg: 30, pitchDeg: 41)  // placeholder until 5a
+        case .backups: ModeFraming(radius: 0.76, yawDeg: 24, pitchDeg: 44)  // furthest, archival distance
+        }
+    }
+
+    /// The look-at transform for a framing. A full `Transform` is needed because
+    /// `move(to:)` won't re-`look(at:)` mid-animation; camera forward is −Z, so
+    /// the +Z column points from the origin toward the camera.
+    nonisolated static func heroTransform(_ f: ModeFraming) -> Transform {
+        let p = heroPosition(radius: f.radius, yawDeg: f.yawDeg, pitchDeg: f.pitchDeg)
+        let back  = simd_normalize(p)                                   // local +Z in world
+        let right = simd_normalize(simd_cross(SIMD3<Float>(0, 1, 0), back))
+        let up    = simd_cross(back, right)
+        return Transform(scale: .one,
+                         rotation: simd_quatf(simd_float3x3(right, up, back)),
+                         translation: p)
+    }
+
+    /// Re-frame the hero model for a mode. Safe before or after the USDZ loads —
+    /// `pendingMode` is applied on load. This is halo presentation, not a hardware
+    /// claim: it never releases pads or touches display / ring state (DD-013).
+    func focusCamera(for mode: HaloMode) {
+        pendingMode = mode
+        guard let cam = cameraEntity else { return }
+        let target = Self.heroTransform(Self.framing(for: mode))
+        if reduceMotion {
+            cam.transform = target                                     // jump-cut under Reduce Motion
+        } else {
+            cam.move(to: target, relativeTo: nil,
+                     duration: HaloMechanics.modeChangeDuration, timingFunction: .easeInOut)
+        }
     }
 }

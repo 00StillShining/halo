@@ -303,6 +303,63 @@ mitigation invented. Out of scope: the 2D `MechanicalButtonStyle` (no 2D velocit
 producer) and group-pad/button LEDs (no observed per-control velocity source) — the
 animator API supports them for free later.
 
+## DD-013 · P1 shell — modes, contextual rail, mode bar, Escape/Return
+
+**2026-07-13.** The persistent window (Brief §7) is now: top status strip + reactive
+stage + a contextual right rail + a bottom mode bar. Six modes
+(`HaloMode`: play/load/edit/capture/rack/backups); RACK is hidden until Phase 5a.
+
+**Mode is UI-only state.** `HaloAppModel.mode` never touches `displayState`,
+`ringState`, or any MIDI path, so a mode switch cannot disturb PREVIEW / WAIT /
+LIVE provenance (Brief §1/§4). `select(_:)` guards no-ops and any mode not in the
+visible bar, and calls `scene.focusCamera(for:)` only — it never calls
+`releaseAllPads()` or presents a display frame.
+
+**Camera move, not screen replacement.** A mode change animates the rail width
+and glides the hero camera between subtle framings (`EP40SceneController.framing`,
+all within a few degrees of the hero view; `.play` equals the original
+0.70/28/42 so the default view is pixel-identical). The rail-width animation and
+the `move(to:relativeTo:duration:timingFunction:)` camera move share one
+`HaloMechanics.modeChangeDuration` (0.45 s) so the whole gesture reads as one
+mechanical motion. Under Reduce Motion both jump-cut. This is halo presentation,
+not a hardware claim — no honesty concern. `move(to:)` (not the macOS-26-only
+`Entity.animate`) per project facts; `pendingMode` applies a pre-load selection
+when the USDZ finishes, mirroring `pendingDisplay` / `pendingRing`.
+
+**⌘1…N indexes the VISIBLE mode-bar order.** So today ⌘5 = BACKUPS and ⌘6 is
+unbound; when RACK ships at Phase 5a, ⌘5 = RACK and ⌘6 = BACKUPS by design. Both
+the mode bar and the `CommandMenu("Mode")` enumerate `HaloMode.visible(...)`, so
+they renumber together — pinned by `HaloShellTests`.
+
+**Escape = transient LIFO stack that structurally cannot reach audio.**
+`TransientCoordinator` is a pure LIFO register of UI dismiss closures. `handleEscape()`
+pops the top entry and calls it (popping before dismiss so a repeated Escape can
+never re-fire the same closure; the view's own `onDisappear` unregister is then a
+harmless no-op). It holds no audio handle and calls nothing on the audio path, so
+Escape can never stop audio — and **audio controls must NEVER register as
+transients** (review contract, not a runtime check). When nothing is registered
+Escape returns `.ignored` and falls through. The rail is furniture, not a
+transient — Escape never collapses it.
+
+**Return is `haloSafeDefault()` only.** The single sanctioned, grep-able way to
+bind Return (`.keyboardShortcut(.defaultAction)`); forbidden on
+overwrite/delete/send-to-device so "never a destructive default" is enforceable at
+review time. No shell control needs it yet.
+
+**Manufactured surface, not SaaS cards.** The rail uses one `HaloPanel` primitive
+(tracked mono header strip, hairline rule, 4 px radius, hairline ink outline, hard
+offset shadow at blur 0 — the extrusion read) and a leading hairline + 2 px metal
+extrusion strip. Per-mode scaffolds (`Halo/Features/<Mode>/…Rail.swift`) show
+**honest rest states only**: disabled placeholder controls with mono captions
+stating the real reason (AUDIO ENGINE — PHASE 2 / DEVICE READ — NEEDS VERIFIED
+PROTOCOL (PHASE 0B) / CAPTURE ENGINE — PHASE 3), em-dash rest values, no invented
+data, no orange (reserved for selected/engaged/focus). Meter tracks rest at zero
+with no motion because no audio truth exists yet.
+
+**Play collapse.** Play defaults to a collapsed 28 pt spine (model is the hero);
+it expands to a 300 pt utility column. Data-heavy modes take
+`HaloMetrics.dataRailWidth` — clamped into the 0.34–0.40 band (0.37 target).
+
 ---
 
 _Open decisions awaiting evidence:_

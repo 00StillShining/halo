@@ -32,5 +32,18 @@ struct HaloApp: App {
         }
         .defaultSize(width: 1440, height: 900)
         .windowStyle(.hiddenTitleBar)
+        .commands {
+            // Command-1…N index the VISIBLE mode-bar order (Brief §7). RACK is
+            // hidden until Phase 5a, so ⌘5 = BACKUPS today and ⌘6 is unbound;
+            // when RACK ships ⌘5 = RACK and ⌘6 = BACKUPS by design.
+            CommandMenu("Mode") {
+                ForEach(Array(HaloMode.visible(rackAvailable: model.rackAvailable).enumerated()),
+                        id: \.element) { index, m in
+                    Button(m.title) { model.select(m) }
+                        .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")),
+                                          modifiers: .command)
+                }
+            }
+        }
     }
 }

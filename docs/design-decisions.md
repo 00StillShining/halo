@@ -1,0 +1,133 @@
+# halo — design & architecture decisions
+
+Running log per Brief §11.6. Append and amend; do not silently contradict.
+
+---
+
+### DD-001 · Project format: Xcode synchronized file-system groups
+**2026-07-13.** `project.pbxproj` uses `objectVersion = 77` with a
+`PBXFileSystemSynchronizedRootGroup` for `Halo/`. Rationale: files added on disk
+are picked up without editing the pbxproj — essential for CLI-driven development.
+Consequence: keep the on-disk folder layout (Brief §8) authoritative.
+
+### DD-002 · Swift 6 language mode
+**2026-07-13.** `SWIFT_VERSION = 6.0`. Rationale: data-race safety matters most in
+the audio/MIDI layer (real-time callbacks, cross-actor state); writing it correct
+from day one is cheaper than migrating later. Cost: stricter Sendable/actor rules
+in Phase 1 UI — acceptable.
+
+### DD-003 · Signing & distribution
+**2026-07-13.** Ad-hoc signing (`CODE_SIGN_IDENTITY = "-"`, manual), hardened
+runtime off, no team/notarisation. Private single-machine app (Brief §2 non-goals).
+`NSMicrophoneUsageDescription` is already set via `INFOPLIST_KEY_*` for when Phase 2
+opens the audio input.
+
+### DD-004 · Ship both palettes; owner chooses at the Phase 1 gate
+**2026-07-13.** `HaloColorTokens.graphPaper` (A) and `.bonePaper` (B) both exist
+behind one token set, switchable via `\.halo` environment. The loser is deleted
+after the gate (Brief §5). No colour literals at call sites.
+
+### DD-005 · Design tokens are the only source of colour/space/type
+**2026-07-13.** `HaloColors` / `HaloTypography` / `HaloMetrics`. System faces only
+(SF Pro / SF Mono); TE proprietary faces never used. 8 px unit; 2–4 px radii;
+hairline rules; panel extrusion — deliberately not the rounded-card SaaS look.
+
+### DD-006 · Entity-name contract — FROZEN (corrected by hardware research)
+**2026-07-13.** Frozen in `EP40EntityNames.swift`. Research (`docs/research/01-hardware-layout.md`)
+verified the physical inventory against TE + K.O. II sources and corrected the
+brief's §6 list:
+- **Names use underscores, not dots.** USD/Blender sanitizes `.`/`-` → `_`
+  (`docs/research/03-realitykit-usdz.md` §2). So the machine contract is
+  `chassis_base`, `pad_0`, `button_keys` … The brief's dotted spelling is
+  human-readable only. **Blender objects MUST be named with the underscore
+  strings** so the USDZ path and procedural fallback resolve identically.
+- **Added `button_keys`** — a real KEYS button, omitted from the brief.
+- **`group_a…group_d` are REAL pressure-sensitive pads**, not just indicators
+  (still one physical set of twelve numeric pads + four group pads = 16 pads).
+- **Added `mic_port`** — confirmed built-in mic on the panel (non-interactive).
+- **Added `ports_strip`** — all I/O is on the TOP EDGE (stereo/sync/midi in-out + USB-C).
+- **`display_surface` is a segmented icon readout on the real unit, not a graphic
+  LCD.** halo shows its OWN state there (Brief §6) so this is unaffected.
+
+Contract is confirmed once, early, per Brief §6. Open physical items needing an
+owner reference photo (do not treat placeholder proportions as measured): exact
+control proportions on the 240×176 face, the pad→number cell mapping, top-edge
+jack order, and confirmation the VOLUME knob is present on the EP-40 (confirmed on
+the shared K.O. II chassis).
+
+### DD-006a · RESOLVED — speaker fires from the FRONT
+**2026-07-13.** Owner confirmed the speaker fires from the front (resolving the
+research uncertainty). The brief §6 was right: a front grille, and the audio-reactive
+"breathing" cue stays on the model. From TE reference imagery it is the distinctive
+**round striped grille in the upper-right of the face**, not a rectangular patch —
+placeholder updated accordingly. Real instanced perforations/stripes come with the
+final model.
+
+### DD-006c · ORIENTATION CORRECTION — the EP-40 is PORTRAIT
+**2026-07-13.** A clean straight-on official product shot shows the EP-40 is operated
+**portrait** (taller than wide): **X width ≈ 176 mm, Z depth ≈ 240 mm**, thickness 16 mm.
+The placeholder was built landscape — wrong. Face layout, far→near: ports (top edge);
+branding (far-left) + round speaker (far-right); full-width green display band; knob
+row (VOLUME left · SOUND/MAIN/TEMPO centre · orange X + green Y knobs right); left edge
+KEYS/FADER/fader/SHIFT; pad matrix (4 icon group pads = left column, then numeric 3×4);
+right function column (SAMPLE/FX/TIMING/ERASE, −/+); RECORD (orange) + PLAY (green) at
+the near edge. This is the authoritative layout for the 1:1 model.
+
+### DD-006d · Real model authored in Blender by this session (headless USDZ)
+**2026-07-13.** Owner wants the final model to resemble the EP-40 1:1. Pipeline
+validated: `tools/blender/build_ep40.py` builds the model headless
+(`blender --background --python`) and exports **USDZ** → `Halo/Resources/EP40.usdz`.
+Verified: Z-up→Y-up conversion (`convert_orientation`, up=Y, forward=NEGATIVE_Z),
+meters scale, and **underscore prim names survive export** so the contract resolves.
+Iteration loop: edit script → export → rebuild halo → screenshot vs reference.
+Export note: clear the World so no stray `DomeLight` is baked in (halo owns lighting).
+
+### DD-006e · Model fidelity pass 1 — legends, striped speaker, measured upper zone
+**2026-07-13.** `tools/blender/build_ep40.py` now includes: geometry-text legends
+(green numerals + A–D on pads; cap labels SOUND/MAIN/TEMPO/KEYS/SAMPLE/TIMING/FX/
+ERASE/−/+/SHIFT; REC/PLAY as full pads; VOLUME/X/Y plate silkscreen — neutral face,
+never TE's typeface); the round speaker rebuilt as cream slats over a dark opening
+at measured proportions (~25% device width, tight in the far-right corner, fully
+above the display band); a white `brand_panel` far-left reserved for halo's OWN
+wordmark decal (never TE's RIDDIM artwork); knobs at measured u-positions. Static
+legends are geometry (crisp, placed in-model); the live display remains a RealityKit
+texture (`DisplayTextureRenderer`, Phase 1). Extra prims beyond the contract
+(slats, rim, brand panel, legends) are fine — validation only requires contract
+names to EXIST.
+
+### DD-006f · GOTCHA — tiny text meshes make RealityKit render NOTHING
+**2026-07-13.** Blender text converted to mesh at **< ~2 mm glyph size** exported to
+a USDZ that RealityKit loaded "successfully" (entity returned, contract resolved, no
+error/fault logged) but the **entire scene rendered blank** — not just the tiny
+meshes. Diagnosed by bisect (single labels rendered; stacked labels with a 1.7 mm
+secondary line did not; raising the secondary to 2.1 mm fixed it). Rule for all
+future legend work in `tools/blender/build_ep40.py`: **no text below 2.1 mm**, and
+any blank-scene regression should suspect degenerate/near-degenerate geometry first.
+Dual-function stacked cap labels (SOUND/EDIT etc., shift-layer in orange) now work.
+
+### DD-006b · Reference imagery, not physical photos
+**2026-07-13.** Owner cannot photograph the physical unit; we work from **online TE
+imagery + owner-supplied EP Sample Tool illustration** (proportion/style reference
+ONLY — never traced, textured, or shipped, per Brief §6 licensing boundary).
+Observations captured in `docs/research/01-hardware-layout.md`. Colourway confirmed:
+**warm cream body, riddim-green + orange accents** (this leans toward Palette B, but
+the owner still chooses at the Phase 1 gate — both ship).
+
+### DD-007 · Blender USDZ is primary; procedural fallback never blocks
+**2026-07-13.** Model authored in Blender → USDZ, honouring the entity contract.
+Until it arrives, a labelled `PLACEHOLDER MODEL` from RealityKit primitives keeps
+every other phase moving (Brief §6). Interactive logic stays independent of asset
+origin.
+
+### DD-008 · Sequencing this session
+**2026-07-13.** EP-40 not connected → Phase 0A/0B deferred to a with-device
+session. Proceeding on Phase 1 (visual north star, mock data), which by design
+depends on neither the hardware nor the Blender asset.
+
+---
+
+_Open decisions awaiting evidence:_
+- Exact physical control inventory (confirm/adjust the contract) — research + owner photos.
+- Palette A vs B — owner, at Phase 1 gate.
+- Audio bridge topology (dual AUHAL + ring vs aggregate device) — Phase 0A prototype + research thread `coreaudio-routing`.
+- EP-40 SysEx dialect — Phase 0B only.

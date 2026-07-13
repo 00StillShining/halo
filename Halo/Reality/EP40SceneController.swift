@@ -11,7 +11,7 @@ final class EP40SceneController {
 
     private(set) var isPlaceholder = true
     private(set) var missing: [EP40Entity] = []
-    private var resolved: [EP40Entity: Entity] = [:]
+    private(set) var resolved: [EP40Entity: Entity] = [:]
     private(set) var modelRoot: Entity?
     private var displayRenderer: EP40DisplayRenderer?
     private var pendingDisplay = EP40DisplayState.previewStill
@@ -20,13 +20,21 @@ final class EP40SceneController {
     private let keyAnimator = KeyTravelAnimator()
     private let ringRig = HaloRingRig()
     private var controls = EP40ControlProjection.rest
-    private var palette: HaloPalette = .graphPaper
+    private(set) var palette: HaloPalette = .graphPaper
     private var reduceMotion = false
+
+    // MARK: - File-drop targeting (P1-play-load, PadDropTargeting.swift)
+    /// Reverse map Entity.ID → contract pad name for a raycast hit; and the
+    /// dedicated hover reticle (halo presentation — a drop *target*, never a
+    /// hardware `setLit` claim, DD-010/DD-014).
+    var dropTargets: [Entity.ID: EP40Entity] = [:]
+    var dropReticle: Entity?
+    var reticlePad: EP40Entity?
     /// The hero camera, resolved once the scene is built. `pendingMode` lets a
     /// mode selected before the USDZ finishes loading apply its framing on load
     /// (same late-load pattern as `pendingDisplay` / `pendingRing`).
     private var cameraEntity: Entity?
-    private var pendingMode: HaloMode = .play
+    private(set) var pendingMode: HaloMode = .play
     /// Polyphonic live pad travel: raw Note On/Off refcounted per physical pad
     /// (two group notes can map to one pad). Preview travel still goes through the
     /// projection; live travel goes through here (Brief §6, DD-012).
@@ -78,6 +86,9 @@ final class EP40SceneController {
             keyAnimator.setReduceMotion(reduceMotion)
             controls = .rest
             padHolds = PadHoldRegistry()
+            // Trigger colliders on the numeric pads so Finder file drops can
+            // hit-test against the model (works for USDZ + procedural fallback).
+            installDropTargets(resolved: result.resolved)
             // Halo-ring glow rig (Brief §5). Bound under the same generation guard
             // so a superseded load never rebinds the live rig. State is applied
             // from connection truth via `applyRing`, never from display frames.
@@ -98,6 +109,7 @@ final class EP40SceneController {
         self.palette = palette
         keyAnimator.setAccent(rim: .rk(palette.rimAccentHex), led: .rk(palette.orangeHotHex))
         ringRig.setPalette(palette)
+        recolorDropReticle()
     }
 
     /// Drive the halo-ring glow from connection/monitor/record truth (Brief §5).
@@ -155,6 +167,7 @@ final class EP40SceneController {
     func releaseAllPads() {
         _ = padHolds.releaseAll()
         keyAnimator.releaseAll()
+        hideDropReticle()
     }
 
     func entity(_ e: EP40Entity) -> Entity? { resolved[e] }

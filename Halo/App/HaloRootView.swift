@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Root layout (Brief §7): top status strip + the reactive EP-40 stage + a
 /// contextual right rail (collapsible in Play, ~34–40% in data-heavy modes) +
@@ -11,6 +12,15 @@ struct HaloRootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        @Bindable var model = model
+        return ZStack {
+            mainLayout
+            preparationOverlay
+        }
+        .haloPalette(model.palette)
+    }
+
+    private var mainLayout: some View {
         @Bindable var model = model
         return VStack(spacing: 0) {
             HaloStatusBar(
@@ -58,6 +68,34 @@ struct HaloRootView: View {
                 isSceneActive: displayLifecycle.isSceneActive,
                 reduceMotion: displayLifecycle.reduceMotion
             )
+        }
+        // Global Finder drop (Brief §7): the stage delegate wins over the model
+        // area; this catches drops on the rail / status / mode bar and opens the
+        // prep sheet with no pad preselected.
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            guard let provider = providers.first else { return false }
+            let load = model.load   // capture the Sendable value, not the @Environment wrapper
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url else { return }
+                Task { @MainActor in
+                    load.beginPreparation(fileURL: url, padHint: nil)
+                }
+            }
+            return true
+        }
+    }
+
+    /// The preparation sheet, presented as a custom transient over everything
+    /// (Brief §7). A dimmed scrim cancels on tap; Escape cancels via the transient
+    /// stack inside `PreparationSheet`.
+    @ViewBuilder
+    private var preparationOverlay: some View {
+        if model.load.prep != nil {
+            let c = HaloColorTokens.tokens(for: model.palette)
+            c.ink.opacity(0.25)
+                .ignoresSafeArea()
+                .onTapGesture { model.load.cancelPreparation() }
+            PreparationSheet(session: model.load)
         }
     }
 

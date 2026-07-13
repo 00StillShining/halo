@@ -362,6 +362,73 @@ it expands to a 300 pt utility column. Data-heavy modes take
 
 ---
 
+## DD-014 — Play + Load layouts on deterministic MOCK data (P1-play-load)
+
+Phase 1 *layout* work (Brief §7 Play/Load). The honesty lines held:
+
+**Mock-data provenance is explicit and everywhere.** `MockDeviceLibrary`
+(`Halo/Samples/`) is the ONE seeded source of truth — a `SplitMix64`-driven
+`generate(seed: 0x0E40)` with no `Date()` / `UUID()` / unseeded randomness, so the
+loop's headless screenshots are byte-stable. LOAD carries a persistent `[MOCK]`
+provenance strip above both tabs (`MOCK DEVICE DATA — REAL READ NEEDS VERIFIED
+PROTOCOL (PHASE 0B)`), and every mock value keeps a `(MOCK)` suffix. This is a UI
+layer entirely separate from the status-bar PREVIEW/WAIT/LIVE provenance — `LoadSession`
+is UI-only state (same class as `mode`, DD-013) and touches nothing on the
+display/ring/MIDI channels, so a mode round-trip through LOAD cannot disturb
+hardware-truth provenance.
+
+**Slots and pad assignments are separated by type, never conflated** (Brief §3).
+`SampleSlotID` (labelled `SLOT 042`) and `MockPadAssignment` (labelled
+`PAD 7 · GROUP A`) are distinct types; assignments *reference* slots. "Usage" is
+always *derived* through one function — `library.assignments(referencing:)` — so
+the SOUNDS `USE` column is computed from PADS data and the two can never silently
+disagree (pinned by `MockDeviceLibraryTests`). Board legends come from `PadGrid.legends`,
+zipped against `EP40Entity.padGridOrder` in `PadsBoardTests`, so board / travel /
+display share one order.
+
+**Play meters rest at true silence.** `StereoMeter` builds the full peak/RMS
+anatomy now (metal track, RMS fill, ink peak-hold tick, unlit clip dot, labelled
+scale) driven by a `StereoLevels` value; the running app always feeds `.silence`.
+Non-silent levels appear ONLY in `#Preview` — a meter that moved in the app would be
+a faked hardware state. Phase 2 wires `AudioLevelBridge` values into this exact
+view with no other change. The `fraction(dB:)` mapping is pure and piecewise so
+each tick sits on its label (`StereoMeterTests`).
+
+**The gain fader is enabled; the output picker is MOCK; transport is disabled.**
+`HaloFader` (DesignSystem, reusable for RACK) sets a real *local* −12 dB preference
+and claims nothing about hardware — same honesty class as palette selection, caption
+states when it takes effect. The output picker lists explicit `(MOCK)` entries
+(`MockMonitorRig`) via an inline disclosure (no stock `Picker`/`Menu`/popover); the
+expanded list registers as a transient so Escape collapses it. MONITOR/RECORD/GRAB
+are disabled keycaps with real-reason captions.
+
+**Pad file drops = presentation, not a hardware claim.** Numeric pads get trigger
+colliders in a dedicated `CollisionGroup.haloDropTargets`, installed in
+`makeScene()`'s generation-guarded block from `visualBounds` (USDZ + procedural
+fallback alike). The drop reticle is a dedicated Halo-owned hairline frame entity —
+**never** `keyAnimator.setLit` (that channel means observed/inferred hardware state,
+DD-010). The pick ray (`dropRay`, pure/`nonisolated`, `PadDropRayTests`) is built
+from the **settled** target framing `framing(for: pendingMode)`, not the animating
+camera: a drop during the 0.45 s camera glide resolves against where the camera is
+*going*, matching where the reticle lands — an accepted edge.
+
+**Preparation sheet.** A custom transient panel (not stock `.sheet`), Escape-cancel
+via the transient stack. The FILE block is REAL (decoded via `AVAudioFile`;
+non-decodable files are rejected before the sheet opens — no invented metadata); the
+DESTINATION block is MOCK (project/next-free-slot/previous-assignment). Group is a UI
+concept here (pads are one physical set) so a pad drop sets the grid index but the
+group follows the rail. Treatment size estimates are pure, `EST`-labelled functions.
+`SEND + ASSIGN` is disabled (`DEVICE TRANSFER — NEEDS VERIFIED PROTOCOL (PHASE 0B)`)
+and never gets `haloSafeDefault()` (device write — the grep-able rule); Return is
+unbound in the sheet.
+
+`needsDevice` (recorded, not attempted): real 001–999 library read + device-reported
+capacity (Phase 0B); on-device audition via the Bank Select/PC scheme (verify Phase
+0A); the `SEND + ASSIGN` upload/verify/assign transaction (Phase 0B / Phase 3). No
+`device-capabilities.md` change — no new hardware claims were made.
+
+---
+
 _Open decisions awaiting evidence:_
 - Exact physical control inventory (confirm/adjust the contract) — research + owner photos.
 - Palette A vs B — owner, at Phase 1 gate.

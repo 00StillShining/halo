@@ -1,5 +1,6 @@
 import SwiftUI
 import RealityKit
+import UniformTypeIdentifiers
 
 /// The permanent stage: graph-paper canvas + a soft grounding shadow + the
 /// reactive EP-40 `RealityView`. The model is the visual centre in every mode
@@ -7,6 +8,7 @@ import RealityKit
 /// `RealityViewCameraContent`; there is no `attachments:` initializer here.
 struct EP40StageView: View {
     @Environment(\.halo) private var c
+    @Environment(HaloAppModel.self) private var model
     var controller: EP40SceneController
 
     var body: some View {
@@ -47,6 +49,13 @@ struct EP40StageView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // File drops on the model's numeric pads preselect the pad and
+                // open the preparation sheet (Brief §7). The reticle tracks the
+                // hovered pad — halo presentation, never a hardware claim.
+                .onDrop(of: [.fileURL],
+                        delegate: StageDropDelegate(scene: controller,
+                                                    session: model.load,
+                                                    viewSize: geo.size))
             }
         }
     }

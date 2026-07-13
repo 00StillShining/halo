@@ -12,6 +12,10 @@ final class HaloAppModel {
     var palette: HaloPalette = .graphPaper
     let scene = EP40SceneController()
 
+    /// LOAD-mode UI state (Brief §7). UI-only, same honesty class as `mode` — it
+    /// never touches displayState / ringState / MIDI (DD-013/DD-014).
+    let load = LoadSession()
+
     // MARK: - Shell (Brief §7). UI-only state — a mode switch never touches
     // displayState / ringState / MIDI paths, so it cannot disturb PREVIEW / WAIT
     // / LIVE provenance (DD-013).

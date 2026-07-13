@@ -28,6 +28,9 @@ struct HaloApp: App {
                 HaloRootView()
                     .environment(model)
                     .frame(minWidth: 1180, minHeight: 720)
+                    // DEBUG-only, env-gated gate-capture hooks (P1-gate). Inert in
+                    // normal runs and compiled out of Release (DD entry below).
+                    .onAppear { GateCaptureSupport.applyIfRequested(model: model) }
             }
         }
         .defaultSize(width: 1440, height: 900)

@@ -429,6 +429,35 @@ capacity (Phase 0B); on-device audition via the Bank Select/PC scheme (verify Ph
 
 ---
 
+## DD-015 — Phase 1 visual gate captured via DEBUG-only env hooks (P1-gate)
+
+The Phase 1 owner gate set (Brief §9) is produced by `tools/dev/capture_gate.sh`, which
+drives the app through `Halo/Diagnostics/GateCaptureSupport.swift` — a `#if DEBUG`,
+env-var-gated helper installed on one `.onAppear` in `HaloApp.swift`. Three hooks:
+`HALO_GATE_PALETTE` (A/B) calls the real `model.selectPalette`, `HALO_GATE_MODE` calls
+the real `model.select`, `HALO_GATE_WINDOW` (`1440x900`/`1180x720`) `setContentSize`s the
+NSWindow (both sizes ≥ the SwiftUI 1180×720 minimum, so AppKit doesn't fight it). Because
+every hook goes through the same code paths a user click would, nothing captured is faked —
+provenance (PREVIEW/WAIT/LIVE) is whatever the app itself derives (Brief §1/§4). The helper
+is compiled out of Release and inert without the env vars.
+
+Capture mechanics: the app is launched with `open -n "$APP" --env …`, **not** the raw
+binary — a directly-exec'd binary registers no WindowServer window in a non-Aqua shell, so
+`screencapture` would have nothing to scope to; `open` gives a real on-screen window.
+Screenshots are window-scoped (`screencapture -o -l <windowID>`, id from
+`tools/dev/window_id.swift` reading only `kCGWindowOwnerName`, no screen-recording grant),
+with a file-size retry heuristic for asleep-display black frames. Two honest provenance
+states are shot per size×palette: `preview` (no MIDI source → self-declared PREVIEW) and
+`mock-live` (`mock_midi_send.swift` virtual source → LIVE with pads travelling). 8 PNGs in
+`docs/gate/`, indexed by `docs/gate/phase1-gate.md`. Captures are `@2x` (Retina); the
+`1180×720` frames measure `2360×1504px` — width is exactly 1180@2x and the extra 64px of
+height is the hidden-titlebar strip `screencapture -l` includes, not extra content.
+
+No palette deleted (both exercised through the real path and verified rendering). No
+device-gated work, no USDZ/generator change, no new target (no pbxproj edit).
+
+---
+
 _Open decisions awaiting evidence:_
 - Exact physical control inventory (confirm/adjust the contract) — research + owner photos.
 - Palette A vs B — owner, at Phase 1 gate.

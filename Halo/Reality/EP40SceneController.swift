@@ -17,7 +17,8 @@ final class EP40SceneController {
     private var pendingDisplay = EP40DisplayState.previewStill
     private var sceneGeneration = 0
     private let keyAnimator = KeyTravelAnimator()
-    private var pressedPad: EP40Entity?
+    private var controls = EP40ControlProjection.rest
+    private var palette: HaloPalette = .graphPaper
 
     /// Build the full scene (model + lights + camera) into a world root and return it.
     func makeScene() async -> Entity {
@@ -48,11 +49,24 @@ final class EP40SceneController {
             missing = result.missing
             modelRoot = result.root
             displayRenderer = renderer
-            keyAnimator.bind(EP40Entity.padGridOrder.compactMap { result.resolved[$0] })
-            pressedPad = nil
+            // Bind ALL pressables now (was pads only) so mode buttons, group pads
+            // and transport can travel/light. Reverse map lets a hit or lookup
+            // resolve back to its contract entity without searching the tree.
+            let pressables = EP40Entity.pressable
+            keyAnimator.bind(pressables.compactMap { result.resolved[$0] })
+            keyAnimator.setAccent(.rk(palette.rimAccentHex))
+            controls = .rest
             renderer?.submit(pendingDisplay)
+            updateControls(for: pendingDisplay)
         }
         return world
+    }
+
+    /// Recolour the focus rims when the owner flips the palette at the Phase 1
+    /// gate. Cheap — at most a handful of lit prims (≤ ~20).
+    func applyPalette(_ palette: HaloPalette) {
+        self.palette = palette
+        keyAnimator.setAccent(.rk(palette.rimAccentHex))
     }
 
     func entity(_ e: EP40Entity) -> Entity? { resolved[e] }
@@ -61,20 +75,38 @@ final class EP40SceneController {
     func applyDisplay(_ state: EP40DisplayState) {
         pendingDisplay = state
         displayRenderer?.submit(state)
-        updatePadTravel(for: state)
+        updateControls(for: state)
     }
 
-    /// Depress the single active pad and release the previous one. Works in both
-    /// PREVIEW and LIVE because both set `activePadIndex`. Polyphonic travel can
-    /// arrive later by feeding raw Note On/Off instead of the collapsed state.
-    private func updatePadTravel(for state: EP40DisplayState) {
-        let target: EP40Entity? = state.activePadIndex.flatMap { idx in
-            EP40Entity.padGridOrder.indices.contains(idx) ? EP40Entity.padGridOrder[idx] : nil
+    /// Drive every model control from the honest projection of the display state:
+    /// pad TRAVEL (observed depression), and rims for the inferred mode button,
+    /// active group, and observed transport. `.waiting` projects to rest/unlit.
+    /// Travel = observed depression; rim = latched/inferred (Brief §4, DD-010).
+    private func updateControls(for state: EP40DisplayState) {
+        let next = EP40ControlProjection.project(state)
+        guard next != controls else { return }
+        diffPress(old: controls.pressedPad, new: next.pressedPad)
+        diffLit(old: controls.selectedModeButton, new: next.selectedModeButton)
+        diffLit(old: controls.activeGroupPad, new: next.activeGroupPad)
+        if next.playEngaged != controls.playEngaged, let play = resolved[.buttonPlay] {
+            keyAnimator.setLit(play, next.playEngaged)
         }
-        guard target != pressedPad else { return }
-        if let old = pressedPad, let e = resolved[old] { keyAnimator.release(e) }
-        if let new = target, let e = resolved[new] { keyAnimator.press(e) }
-        pressedPad = target
+        controls = next
+    }
+
+    /// A single active pad travels; the previous one releases (polyphonic travel
+    /// can arrive later by feeding raw Note On/Off instead of the collapsed state).
+    private func diffPress(old: EP40Entity?, new: EP40Entity?) {
+        guard old != new else { return }
+        if let old, let e = resolved[old] { keyAnimator.release(e) }
+        if let new, let e = resolved[new] { keyAnimator.press(e) }
+    }
+
+    /// Move the rim from the old control to the new one.
+    private func diffLit(old: EP40Entity?, new: EP40Entity?) {
+        guard old != new else { return }
+        if let old, let e = resolved[old] { keyAnimator.setLit(e, false) }
+        if let new, let e = resolved[new] { keyAnimator.setLit(e, true) }
     }
 
     func activateDisplayStreaming() {

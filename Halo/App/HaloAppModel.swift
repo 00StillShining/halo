@@ -12,6 +12,14 @@ final class HaloAppModel {
     var palette: HaloPalette = .graphPaper
     let scene = EP40SceneController()
 
+    /// Owner picks a palette at the Phase 1 visual gate. Recolours the 3D focus
+    /// rims to match; the SwiftUI subtree recolours through `\.halo` automatically.
+    func selectPalette(_ palette: HaloPalette) {
+        guard palette != self.palette else { return }
+        self.palette = palette
+        scene.applyPalette(palette)
+    }
+
     private(set) var displayState = EP40DisplayState.previewStill
     private(set) var deviceStatus = "NO DEVICE"
     private(set) var firmwareStatus = "—"

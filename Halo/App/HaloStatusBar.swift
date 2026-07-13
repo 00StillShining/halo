@@ -12,6 +12,8 @@ struct HaloStatusBar: View {
     var displayStatus: String
     var isDisplayLive: Bool
     var midiEndpointName: String?
+    var palette: HaloPalette
+    var onSelectPalette: (HaloPalette) -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: HaloMetrics.s3) {
@@ -44,12 +46,33 @@ struct HaloStatusBar: View {
             statusChip(label: "OUTPUT", value: "MACBOOK AIR", accent: false)
             statusChip(label: "MONITOR", value: "OFF", accent: false)
             statusChip(label: "REC", value: "—", accent: false)
+
+            paletteSwitcher
         }
         .padding(.horizontal, HaloMetrics.s3)
         .frame(height: 52)
         .background(c.paper)
         .overlay(alignment: .bottom) {
             Rectangle().fill(c.ink.opacity(0.18)).frame(height: HaloMetrics.hairline)
+        }
+    }
+
+    // Palette gate switcher (Brief §5): A / B mechanical keycaps. The owner picks
+    // one at the Phase 1 visual gate; both palettes must keep working until then.
+    // Exercises rest/hover/pressed/selected/keyboard-focus in one live place.
+    private var paletteSwitcher: some View {
+        HStack(spacing: 6) {
+            Text("PALETTE")
+                .font(HaloType.label(9))
+                .haloLabelCase()
+                .foregroundStyle(c.inkSoft.opacity(0.7))
+            ForEach(HaloPalette.allCases) { option in
+                Button(option.rawValue) { onSelectPalette(option) }
+                    .buttonStyle(MechanicalButtonStyle())
+                    .mechanicalSelected(palette == option)
+                    .focusable()
+                    .help(option.displayName)
+            }
         }
     }
 

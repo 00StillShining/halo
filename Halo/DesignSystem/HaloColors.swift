@@ -74,6 +74,19 @@ struct HaloColorTokens: Sendable, Equatable {
     }
 }
 
+extension HaloPalette {
+    /// The `orange` token as a raw hex, for RealityKit materials (the 3D focus
+    /// rim) which cannot read a SwiftUI `Color`. Kept in lockstep with the
+    /// `orange:` values in `HaloColorTokens.graphPaper` / `.bonePaper` above —
+    /// change both together.
+    var rimAccentHex: UInt32 {
+        switch self {
+        case .graphPaper: 0xFF5A1F
+        case .bonePaper:  0xFF4A00
+        }
+    }
+}
+
 // MARK: - Environment plumbing
 
 private struct HaloColorsKey: EnvironmentKey {

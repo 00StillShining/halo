@@ -37,6 +37,7 @@ Status legend:
 | Note ranges 36–47=A … 72–83=D | DOCUMENTED (verbatim TE chart, both TX+RX columns) | research/02 | — |
 | Internal pad order within a group (dot/0–9/ENTER vs other) | **UNKNOWN — assumption only** | not in TE chart (research/02); app code currently assumes `. 0 ENTER 1–9` in EP40EntityNames — verify on device (Phase 0A) | — |
 | Play / Stop / Record **transmit** transport | UNKNOWN | Phase 0A | — |
+| Hardware **record state** observable (for `button_record` lighting) | **NOT observable via documented USB MIDI** — no Record realtime message; `EP40DisplayState` has no record field. `button_record` stays unlit by design (DD-010). needsDevice: revisit in Phase 0B. | research/02, DD-010 | — |
 | MIDI clock SEND (24 PPQN, stable) | UNKNOWN — needed for 5b | Phase 0A | — |
 | Device transmits CC 12/13 when X/Y knobs move | UNKNOWN — likely NOT | Phase 0A | — |
 | CC inputs recognised (1,12,13,64) | DOCUMENTED | Brief §3 | — |

@@ -17,11 +17,14 @@ struct HaloRootView: View {
                 usbStatus: model.usbStatus,
                 displayStatus: model.displayStatus,
                 isDisplayLive: model.isDisplayLive,
-                midiEndpointName: model.midiEndpointName
+                midiEndpointName: model.midiEndpointName,
+                palette: model.palette,
+                onSelectPalette: { model.selectPalette($0) }
             )
             EP40StageView(controller: model.scene)
         }
         .haloPalette(model.palette)
+        .focusEffectDisabled()
         .background(HaloColorTokens.tokens(for: model.palette).canvas)
         .onAppear {
             model.startEP40Monitoring()

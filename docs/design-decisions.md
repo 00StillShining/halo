@@ -170,6 +170,54 @@ real is hidden. Also observed: macOS can take ~25–40 s to flush a crash report
 so verify.sh's process-liveness check during the smoke window is the primary
 signal; the report count is secondary coverage.
 
+### DD-010 · Travel = observed depression; rim = latched/inferred state
+**2026-07-13 (P1-buttons).** The mechanical button language (Brief §6) now covers
+every model control, but split by provenance so it can never claim an unobserved
+finger (Brief §1/§4):
+
+- **Travel** (a −Y depression) means *a physical press was observed right now*.
+  Only the numeric pads travel, driven by pad Note On/Off — the existing,
+  unchanged behaviour. Pointer hover (halo's own observation) adds a tiny +0.15 mm
+  lift; it is always honest.
+- **Rim** (a thin orange focus outline, no travel) means *a latched or inferred
+  state*: the mode button matching `EP40DisplayState.mode`
+  (`.sound/.main/.tempo` → button; `.erase`/`.system` → dark, no verified button),
+  the active group pad (`activeGroup` → group_a…d, a note-range inference), and the
+  transport engaged state (`button_play` lit while `isPlaying`, sourced from
+  observed MIDI Start/Continue/Stop — the Brief's sanctioned "transport
+  indicator", NOT a held-down cap).
+- **`button_record` gets no state-driven animation at all.** There is no observed
+  record source on the documented USB MIDI surface (`EP40DisplayState` has no
+  record field; the realtime set has no Record message). It keeps the mechanical
+  hover/press affordance but is never lit or travelled by state. No `isRecording`
+  field was added — the absence *is* the honesty guarantee, pinned by
+  `EP40ControlProjectionTests.testProjectionExposesNoRecordChannel`. Recorded under
+  needsDevice (see device-capabilities). Note: halo's own Phase-2 Mac-side recorder
+  must NOT animate this button either — Mac recording is not device record.
+
+Implementation: a pure, non-`@MainActor` `EP40ControlProjection.project(_:)`
+(unit-testable) maps a display state to four honest channels; `.waiting` projects
+to `.rest` (everything unlit) even with stale values. `EP40SceneController`
+diffs the projection and drives `KeyTravelAnimator`, now a small state machine
+composing `pressed`/`hovered`/`lit` through one `settle` function. Timing and
+depth for 2D (`MechanicalButtonStyle`) and 3D (`KeyTravelAnimator`) come from one
+shared `HaloMechanics` enum so they match by construction. The 3D focus rim is
+halo-owned geometry (four thin `UnlitMaterial` bars, a 0.6 mm annotation, ≥ the
+fallback's existing 0.6 mm prims — DD-006f concerns the Blender *text* generator,
+not runtime primitives) added as a child of the button entity, so it follows
+travel and never mutates USDZ materials. The palette switcher in `HaloStatusBar`
+is the style's first real consumer (rest/hover/pressed/selected/keyboard-focus in
+one place) and recolours the 3D rims via `setAccent` on palette flip.
+
+**Deferred:** (1) 3D pointer *hover* is honest and specced but deferred to P2's
+clickable-pads task — it needs a running-app verification of the camera
+projection's FOV axis (vertical vs horizontal) that a flaky headless capture
+can't give, and shipping unverified ray math risks a silently-offset feature.
+The `KeyTravelAnimator.setHovered` channel is built and ready. (2) 3D
+keyboard-focus is deferred — there is no 3D focus model yet; 2D covers keyboard
+focus. (3) 3D "disabled" is defined as "no hover/press response + rim suppressed"
+(no dimming of USDZ materials); no disabled model controls exist in Phase 1.
+
 ---
 
 _Open decisions awaiting evidence:_

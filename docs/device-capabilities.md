@@ -99,3 +99,55 @@ only for an observed row (today: none).
 
 _Note: sample-library slots and project pad assignments are **separate concepts**
 and must never be conflated in code or labels (Brief §3)._
+
+---
+
+## What remains — owner checklist (post-P5c final sweep, DD-031)
+
+The hardware-independent build is complete: all six modes, Capture/Edit/Play/Load,
+the monitor route + dub FX rack + GRAB + CHOP, storage/backups/journal, diagnostics,
+and the full non-happy-path state vocabulary are BUILT and unit-tested (286 tests).
+What is left falls into three buckets.
+
+### A. Owner sign-off — **no device required**
+- **Palette pick — A (cool) vs B (warm).** Both are kept fully working; the loop never
+  deletes a palette. Owner chooses at the Phase 1 gate. _(Open decision, DD-013/DD-015.)_
+- **Phase 1 visual gate approval.** Gate screenshots are captured via DEBUG-only env hooks
+  (DD-015). The owner needs to eyeball and sign off the Phase 1 look before it is "locked."
+- **§10 Instruments profiling.** The brief gates "Phase 2 and 5a complete" on an Instruments
+  profiling pass (audio-thread allocations, CPU, energy). This is a **manual owner-side step
+  the loop cannot perform** — the DSP is RT-safe by construction and unit-tested, but the
+  profiler run is outstanding verification, not a code gap.
+- **Optional §5a XY-pad mapping** (X→SWEEP freq, Y→ECHO feedback) — not built (DD-031). Brief
+  marks it optional; request it if wanted.
+
+### B. Needs-device — **Phase 0A (with device, read-only / non-destructive)**
+Mechanisms are BUILT + unit-tested on this Mac; these rows confirm the EP-40's own truth:
+- EP-40 exposed as USB audio **input/output**; its own channel counts, supported rates,
+  buffer ranges and stable UID (rows above: audio §, DD-016).
+- **Live monitor route through the EP-40** (DD-017): end-to-end latency @ Low/Balanced/Safe,
+  30-min stability, 10× unplug/reconnect recovery, and **wiring + tuning the drift corrector**
+  (`DriftController`/`DriftCompensatingConverter` are built + tested but not yet in the live
+  render path — needs two real clocks to observe).
+- **Real EP-40 audio into the recorder**, byte-verified end-to-end (DD-018).
+- **MIDI truth** (MIDI §): identity reply; pads transmit Note On/Off (all 12 × A–D); velocity
+  present; **internal pad order within a group** (currently an assumption — DD, EP40EntityNames);
+  transport transmit; **MIDI clock send 24 PPQN** (needed for GRAB bar-lock + rack tempo-sync);
+  CC 12/13 on X/Y knob move; Bank/PC sound-select scheme.
+- **Feel checks** that only a real signal can confirm: GRAB bar-accurate loop feel (DD-029),
+  rack live-clock sync feel + battery CPU + 30-min rack-engaged soak (DD-028).
+
+### C. Needs-device — **Phase 0B (proprietary SysEx, includes destructive writes) — OUT OF SCOPE for the loop**
+No protocol bytes are invented anywhere; every device write is a disabled seam returning
+`.needsDevice`:
+- SysEx framing / device ID / checksum / ack (the dialect itself).
+- Read-only sample listing; download one sample (byte/metadata compare); guarded upload
+  round-trip (verify by read-back); pad-assignment read + write.
+- `halo-ring .transfer` real progress producer (UI complete, producer absent).
+- Edit-mode **SEND CHANGES** (needs sample download + verified upload/assign).
+- CHOP **SEND TO PADS** serialised upload+assign transaction (`ChopSending` seam, DD-030).
+- Hardware record-state observability — revisit in Phase 0B (DD-010).
+
+**Honesty invariant:** `DeviceCapabilitiesTests.testNoCapabilityIsObserved` pins that **no
+row is `OBSERVED`** today. A row may flip to `OBSERVED` only when a real with-device session
+updates **both** this file and `DeviceCapabilities.catalogue` together.

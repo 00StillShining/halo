@@ -137,6 +137,12 @@ struct EditRail: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help("Local sample — right-click to reveal in Finder")
+        .contextMenu {
+            // Imports are referenced in place (DD-022): the honest reveal target is the
+            // sample's real source URL, not the (empty) canonical Library folder.
+            Button("Reveal in Finder") { HaloFileStore.reveal(asset.sourceURL) }
+        }
     }
 
     private func rowSummary(_ asset: SampleAsset) -> String {

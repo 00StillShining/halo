@@ -285,9 +285,10 @@ private struct OutputDevicePicker: View {
                         .font(HaloType.mono(11))
                         .foregroundStyle(resolution.device == nil ? c.inkSoft : c.ink)
                         .lineLimit(1).truncationMode(.middle)
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(c.inkSoft)
+                    HaloChevron(pointingUp: expanded)
+                        .stroke(c.inkSoft,
+                                style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
+                        .frame(width: 9, height: 6)
                         .opacity(snapshot.outputs.isEmpty ? 0.3 : 1)
                 }
                 .contentShape(Rectangle())

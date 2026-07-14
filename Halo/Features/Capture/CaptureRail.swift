@@ -202,9 +202,8 @@ private struct TakeRow: View {
                 }
                 Spacer(minLength: 0)
                 if isGrab && isPlaying {
-                    Image(systemName: "repeat")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(c.orange)
+                    HaloLoopGlyph(color: c.orange)
+                        .frame(width: 12, height: 12)
                         .help("Looping")
                 }
             }

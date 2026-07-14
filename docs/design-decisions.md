@@ -1073,6 +1073,33 @@ the actual upload+assign is **disabled** (Phase 0B, needsDevice).
   are unit-tested (`OnsetDetectorTests`, 14 cases). `SEND TO PADS` + assign is recorded under
   `needsDevice`; no protocol bytes are invented.
 
+### DD-031 — Final regression sweep: LIBRARY reveal + SF-Symbol removal (loop/final)
+
+Whole-project sweep after P5c. Build clean, 286 tests pass, app launches and survives an
+8 s mock-MIDI (poly) stimulus to DISPLAY LIVE with no crash. Three code touch-ups, all
+hardware-independent:
+
+- **LIBRARY Finder reveal (Brief §7 completeness).** Phase-4 requires Finder reveal for
+  samples, takes **and** backups; takes (`CaptureRail`) and backups (`BackupsRail`) already
+  had it, the imported local sample library did not. Fixed with a per-row **"Reveal in
+  Finder"** context menu on each `EditRail` library row — matching `TakeRow`'s existing
+  pattern. **Honesty note:** imports are referenced *in place* at `SampleAsset.sourceURL`
+  (DD-022) — nothing is copied into the canonical `HaloFileStore.Folder.library` folder,
+  which stays empty. So the reveal target is the sample's real `sourceURL`, and a
+  panel-level "REVEAL FOLDER → .library" was deliberately **not** added: it would open an
+  empty folder and mislead about where the user's samples live. (If a later phase copies
+  imports into `Library/`, a folder-level reveal becomes honest and can be added then.)
+- **No stock SF Symbols (Brief §5).** The two remaining `Image(systemName:)` calls —
+  `repeat` (looping-grab indicator, `CaptureRail`) and `chevron.up/down` (output-picker
+  disclosure, `PlayRail`) — are replaced with drawn geometry in
+  `Halo/DesignSystem/HaloGlyphs.swift`: `HaloChevron` (a stroked `Shape`) and `HaloLoopGlyph`
+  (a `Canvas` circular arrow whose arrowhead tangent is sampled from the exact arc drawn, so
+  it can never point the wrong way). The UI is now 100% drawn marks, token-coloured.
+- **Not built (owner call, not a gap):** the Brief §5a **optional** XY-pad mapping
+  (X→SWEEP freq, Y→ECHO feedback) is the one named 5a sub-feature absent. The brief marks it
+  explicitly optional; every required 5a piece (TAP tempo, PRINT FX, tempo-sync-with-fallback,
+  all four DSP modules) is present and real. Left for the owner to request if wanted.
+
 ---
 
 _Open decisions awaiting evidence:_

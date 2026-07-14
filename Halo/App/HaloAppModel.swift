@@ -50,12 +50,30 @@ final class HaloAppModel {
     /// Session recorder lifecycle. Records the raw input while a monitor route runs.
     let recorder: SessionRecorder
 
+    /// Local backup-snapshot index (Brief §7 Backups). Scans `Backups/` for dated
+    /// snapshot folders. Empty until a verified device layer (Phase 0B) can read
+    /// samples off the EP-40 — halo never fabricates a snapshot.
+    let backups = BackupStore()
+
+    /// Recoverable-writes journal (Brief §7/§8). Wired now so the eventual device
+    /// layer records every reversible operation through one audited path; rests
+    /// empty until a real device write occurs.
+    let journal = OperationJournal()
+
+    /// Device-restore seam (Brief §7). NEEDS-DEVICE: writing samples back onto the
+    /// EP-40 is the proprietary protocol (Phase 0B), so the default honestly reports
+    /// that restore needs a connected device and changes nothing.
+    let restorer: any BackupRestoring = DeviceUnavailableRestorer()
+
     /// Microphone (USB-audio input) authorisation (Brief §8). Gates an explicit
     /// monitor start and is surfaced honestly — a denied device can never be shown
     /// as monitoring. Injectable so the gating is unit-tested with a mock probe.
     let permission: AudioPermission
 
     init(permission: AudioPermission = AudioPermission()) {
+        // Create the canonical on-disk layout up front (Brief §8) so every
+        // subsystem has its folder before it writes.
+        HaloFileStore.ensureAll()
         let sceneController = EP40SceneController()
         scene = sceneController
         monitor = MonitorController(levelBridge: sceneController.audioLevelBridge,

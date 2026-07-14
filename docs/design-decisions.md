@@ -768,6 +768,43 @@ per-asset non-destructive prep + source-immutability, reset, wired memory estima
 pad-target consistency, the Space gate predicate, `WaveformGeometry` round-trip/clamp, and pure `makeBuffer`.
 `AuditionPlayer` engine playback is **needs-device** (real output) and left untested, exactly as the AUHAL route is.
 
+### DD-023 · Storage authority, backup snapshots & operation journal (P4-storage)
+**2026-07-14.** Brief §2/§7/§8 local data. New `Halo/Storage/`:
+- **`HaloFileStore`** is the single filesystem authority — the five canonical folders
+  (`Library`, `Backups`, `Recordings`, `Manifests`, `Diagnostics`) under
+  `~/Library/Application Support/Halo/` are named in exactly one place and created
+  on demand (`ensureAll()` at model init). `Take.swift`'s hardcoded recordings path
+  now delegates here (no behaviour change; recorder tests still green). `HaloJSON`
+  provides one pretty-printed, sorted-key, ISO-8601 coder pair so every manifest on
+  disk is human-readable and diffable — the Brief §2 rule that samples are *never
+  recoverable only through halo*.
+- **`BackupManifest`** — versioned (`schemaVersion`) `Codable` snapshot descriptor:
+  reasons `beforeWrite`/`manual`/`daily`, entries carrying device slot, pad
+  reference (nil ⇒ **REFERENCES UNKNOWN**, never assumed absent), recovery filename,
+  byte count, SHA-256, and a `provenance` enum whose only case is `.device`.
+  **`BackupStore`** (@MainActor @Observable) writes each snapshot as a self-contained
+  `Backups/<date-reason-id>/` folder (`manifest.json` beside its recovery copies) and
+  rescans on init — persistence IS the folder tree, unreadable folders dropped, never
+  faked (parity with `TakesStore`). Injectable `backupsDir` for tests.
+- **`OperationJournal`** (@MainActor @Observable) — append-only recoverable-writes log
+  at `Manifests/operation-journal.json`. An op is journalled `.pending` before the
+  write and flipped `.committed` only after read-back verify; a crash leaves the
+  pending entry + its recovery path on disk so the user recovers instead of losing a
+  sample. Versioned document wrapper.
+
+**needsDevice:** creating a snapshot PAYLOAD (reading samples off the EP-40) and
+restoring one (writing them back) are the proprietary protocol (Phase 0B). So the
+BACKUPS rail's `NEW SNAPSHOT` is disabled with the real reason, and restore goes
+through the `BackupRestoring` seam whose honest default (`DeviceUnavailableRestorer`)
+reports `.deviceRequired` and changes nothing. The list rests at `NO SNAPSHOTS` until
+a verified device layer exists. Restore is gated behind a plain-language
+`confirmationDialog` (Brief §7); there is **no** delete control anywhere in the rail —
+old backups are never silently deleted. Tested headless (`StorageManifestTests`, 12
+cases): manifest round-trip + versioning + human-readability, reason labels, SHA-256
+stability, store write→reload + newest-first + drop-unreadable, restorer honesty,
+journal begin/commit/rollback/resolve + crash-reload recovery, journal-document
+versioning, and the five-folder layout.
+
 ---
 
 _Open decisions awaiting evidence:_

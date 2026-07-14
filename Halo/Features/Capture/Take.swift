@@ -41,16 +41,12 @@ final class TakesStore {
         if scanOnInit { loadFromDisk() }
     }
 
-    /// Directory the recorder writes into and this store scans. Unsandboxed app, so
-    /// this path is directly writable.
+    /// Directory the recorder writes into and this store scans. Resolved through
+    /// the single filesystem authority (`HaloFileStore`) so the canonical layout
+    /// is named in exactly one place. Unsandboxed app, so this path is directly
+    /// writable.
     nonisolated static func recordingsDir() -> URL {
-        let base = (try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: true))
-            ?? FileManager.default.temporaryDirectory
-        let dir = base.appendingPathComponent("Halo/Recordings", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        HaloFileStore.url(.recordings)
     }
 
     /// Ingest a just-finished take (called after the drain has fully flushed and

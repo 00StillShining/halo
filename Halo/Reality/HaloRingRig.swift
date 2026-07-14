@@ -21,8 +21,10 @@ import simd
 @MainActor
 final class HaloRingRig {
 
-    /// Future audio-monitor producer writes peaks here; the tick reads it on the
-    /// main actor at ≤ 60 Hz. Audio-callback data NEVER reaches RealityKit directly.
+    /// The monitor route's output callback writes its post-limiter peak here
+    /// (shared via `EP40SceneController.audioLevelBridge` → `MonitorController`,
+    /// P2-route); the tick reads it on the main actor at ≤ 60 Hz. Audio-callback
+    /// data NEVER reaches RealityKit directly.
     let audioLevel = AudioLevelBridge()
 
     private enum RingColor { case orange, orangeHot, warning }

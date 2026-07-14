@@ -498,8 +498,79 @@ their honest Phase 2 rest state.
 
 ---
 
+## DD-017 — Monitor route: dual-AUHAL + ring buffer + limiter + honest meters (P2-route)
+
+Brief §8 wants the production monitor path: an input-only AUHAL for the EP-40 and a separate output
+AUHAL for the chosen Mac output, bridged through a preallocated SPSC ring buffer, drift-handled,
+metered at 30–60 Hz, and run through monitor gain → (Phase 5 FX insert, bypassed) → a transparent
+−1 dBFS safety limiter. Built as a pure, exhaustively-tested DSP core plus a thin real-hardware router.
+
+Pure, real-time-safe, unit-tested building blocks (no allocation / locks / logging on the hot path):
+- `AudioRingBuffer` — preallocated single-producer/single-consumer float bridge; power-of-two capacity,
+  monotonic `Atomic` head/tail with acquire/release ordering, partial write/read on overrun/underrun,
+  lossless across wrap (`AudioRingBufferTests`, incl. a 2000-step wrap stream).
+- `SafetyLimiter` — stereo-linked, zero-lookahead −1 dBFS brick wall. Two pinned guarantees: output
+  never exceeds the ceiling (even on ±9.0 impulses), and it is **bit-transparent** below/at the ceiling
+  (gain stays exactly 1.0) so it colours nothing until it must (`SafetyLimiterTests`).
+- `MonitorGain` — smoothed −12 dB-default gain; dB→linear with a true-silence floor at −60 dB, unity is
+  bit-transparent (`MonitorPathTests`).
+- `AudioMeter` / `MeterMath` — peak/RMS with fast-attack/slow-release ballistics, published as atomic
+  bit-patterns (single writer = audio thread, single reader = main actor) and read back as a dBFS
+  `StereoLevels` snapshot with a latched, self-clearing clip flag. A fresh/stopped meter reads
+  `.silence` (`AudioMeterTests`). Fixed an inverted ballistic formula found by the tests.
+- `DriftController` — pure, gentle (±0.2% max) sample-rate ratio from ring fill vs a half-full target;
+  `>1` when too full, `<1` when too empty, clamped so pitch stays imperceptible (`MonitorPathTests`).
+  Wrapped by `DriftCompensatingConverter` (AudioConverter, passthrough when formats match).
+  **Honest limit (Overseer sweep): the drift stage is NOT yet applied to the live stream** — nothing in
+  the render path calls it. Wiring a varispeed stage into the output callback and tuning it needs two
+  real clocks to observe (needs-device, Phase 0A soak). Until then ppm clock drift degrades, worst
+  case, to a bounded ring drop / silence-fill after many minutes — never a crash, never a faked
+  correction, and the router comment says exactly this.
+- `MonitorProfile` — LOW 128 / BALANCED 256 (default) / SAFE 512, clamped to the device's buffer range.
+- `FeedbackGuard` — pure check: routing the EP-40 input to the EP-40 as output would howl.
+
+Real-hardware shell (production path; **live audio = needs-device**):
+- `MonitorRenderContext` — the shared preallocated RT state handed to both callbacks as an *unretained*
+  pointer (no ARC on the audio thread). Canonical interleaved Float32 stereo; UI→RT gain crosses a
+  single `Atomic<UInt32>` seam. Output callback: read ring → gain → (FX bypass) → limiter → publish
+  meter + ring-glow level. Input callback: `AudioUnitRender` the EP-40 into scratch → write ring.
+- `EP40AudioRouter` (`MonitorEngine`) — builds the two `kAudioUnitSubType_HALOutput` units, sets their
+  current devices by UID (never the system default), installs the callbacks, and starts/stops. Throws
+  honest `MonitorRouteError`s (no input device, config/start failures) rather than crashing when the
+  EP-40 audio input is absent.
+- `MonitorController` (@MainActor @Observable) — owns lifecycle + the 50 Hz meter poll. Monitoring
+  starts ONLY on explicit `start` and defaults to −12 dB; the meter drops to `.silence` on stop. Its
+  state machine is unit-tested with a mock engine (`MonitorPathTests`). USB removal stops the route
+  promptly (wired in `HaloAppModel.receive(_ connection:)`).
+
+Honesty (Brief §1/§4): the meter shows only levels the output callback ACTUALLY rendered — no route,
+no movement. `PlayRail` now drives the real route: MONITOR is enabled only when a real EP-40 audio
+input and an output device are both present, captions state the real reason otherwise, and the
+feedback-risk warning surfaces when the chosen output *is* the EP-40 input. Both palettes untouched; no
+device-gated protocol invented; both `Halo/` and `HaloTests/` are synchronized groups (no pbxproj edit).
+Live audio through hardware, end-to-end latency and the 30-minute soak remain needs-device (Phase 0A).
+
+Overseer sweep (same task, before commit):
+- **Clip flag was inert** — `publish` received the post-limiter buffer (peaks capped at ≈0.891), so the
+  latched clip could never fire. The output callback now measures the RAW pre-limiter peaks and passes
+  them to `publish(_:frames:rawPeakL:rawPeakR:)`; clip = a real overload attempt the limiter caught
+  (pinned by `testClipLatchesFromRawPeaksOnLimitedBuffer`). Shown levels stay post-limiter (the caption
+  says so).
+- **Ring-glow bridge was a dead end** — `MonitorController()` default-built its own `AudioLevelBridge`
+  while `HaloRingRig` read a different instance, and `monitorEngaged` was never fed, so a genuinely
+  running route showed neither the MON ring state nor the glow. `HaloAppModel.init` now hands the
+  scene's rig bridge to the controller, and start/stop go through `startMonitor`/`stopMonitor` wrappers
+  that refresh `ringState` (`monitorEngaged: monitor.isRunning`) — the ring/`HALO MON` chip now shows
+  only an actually-running route.
+- **AudioUnit leak on failed start** — a `makeOutputUnit` failure leaked the already-created input unit;
+  units/context now register the moment they exist so the failure path disposes everything, and each
+  factory disposes its instance if configuration throws mid-way.
+
+---
+
 _Open decisions awaiting evidence:_
 - Exact physical control inventory (confirm/adjust the contract) — research + owner photos.
 - Palette A vs B — owner, at Phase 1 gate.
-- Audio bridge topology (dual AUHAL + ring vs aggregate device) — Phase 0A prototype + research thread `coreaudio-routing`.
+- Audio bridge topology — decided (P2, DD-017): dual AUHAL + preallocated SPSC ring (not an aggregate
+  device), so the user's Mac audio preferences stay intact. Live latency/stability still needs-device.
 - EP-40 SysEx dialect — Phase 0B only.

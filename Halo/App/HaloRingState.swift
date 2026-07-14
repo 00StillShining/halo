@@ -5,10 +5,11 @@ import Foundation
 ///
 /// The ring is driven by connection/monitor/record truth ONLY. It is never
 /// driven by `EP40DisplayState` preview/demo frames — a faked hardware state is
-/// an automatic review failure. `.monitoring`, `.recording`, and `.transfer`
-/// have no producers yet (no audio engine; SysEx transfer is device-gated), so
-/// they are defined and rendered but remain unreachable until a real producer
-/// exists.
+/// an automatic review failure. `.monitoring` has a REAL producer as of P2-route
+/// (`MonitorController.isRunning` — true only while the AUHAL route actually
+/// runs). `.recording` and `.transfer` have no producers yet (recorder is a later
+/// phase; SysEx transfer is device-gated), so they are defined and rendered but
+/// remain unreachable until a real producer exists.
 enum HaloRingState: Equatable, Sendable {
     case disconnected                    // CoreMIDI client not running (or torn down)
     case discovering                     // client alive, watching, no EP-40 endpoint
@@ -22,7 +23,7 @@ enum HaloRingState: Equatable, Sendable {
         var observerRunning = false      // midiObserver != nil
         var endpointConnected = false    // EP40MIDIConnection.isConnected
         var errorLabel: String?          // model.ringErrorLabel (real failures only)
-        var monitorEngaged = false       // FUTURE: audio engine — no producer yet
+        var monitorEngaged = false       // MonitorController.isRunning (P2-route)
         var recordingStartedAt: Date?    // FUTURE: recorder — no producer yet
         var transferProgress: Double?    // FUTURE: device transfer — needsDevice
     }

@@ -1,27 +1,86 @@
 import SwiftUI
 
 /// PLAY rail (Brief §7). Fills the expanded 300 pt utility column with the full
-/// monitor / meter / transport anatomy. Honesty position (DD-013/DD-014/DD-016):
-/// the audio ENGINE is Phase 2, so MONITOR/RECORD/GRAB stay disabled with real
-/// reason captions and the meters rest at true `.silence` (a moving meter would be
-/// a faked hardware state). The output picker is now REAL — it lists live Core
-/// Audio devices by stable UID (`AudioDeviceDiscovery`) and persists the user's
-/// choice — but it changes nothing about the system: routing itself is Phase 2 and
-/// the system default output is never touched. The gain fader sets a real local
-/// preference and claims nothing about hardware.
+/// monitor / meter / transport anatomy. Honesty position (DD-013/DD-014/DD-016/
+/// DD-017): the monitor route is now REAL (P2-route) — MONITOR opens an input-only
+/// AUHAL for the EP-40 and an output AUHAL for the chosen Mac output, bridged and
+/// limited, without touching the system default. It starts only on this explicit
+/// press, defaults to −12 dB, and the meters show the ACTUAL rendered levels; when
+/// no route runs they rest at true `.silence` (a moving meter without a live route
+/// would be a faked hardware state). MONITOR stays disabled with a real reason
+/// until an EP-40 audio input and an output device are both present. Live audio
+/// through hardware is verified on-device (needs-device). RECORD/GRAB remain later
+/// phases.
 struct PlayRail: View {
     @Environment(\.halo) private var c
     @Environment(HaloAppModel.self) private var model
-    @State private var monitorGainDB = -12.0            // Brief §7 workflow: safe −12 dB
+
+    private var ep40InputUID: String? { model.audioDevices.snapshot.ep40AudioInput?.uid }
+    private var outputUID: String? {
+        model.audioOutput.resolution(in: model.audioDevices.snapshot).device?.uid
+    }
+    private var canMonitor: Bool { ep40InputUID != nil && outputUID != nil }
+    private var isRunning: Bool { model.monitor.isRunning }
+
+    private var gainBinding: Binding<Double> {
+        Binding(get: { model.monitor.gainDB }, set: { model.monitor.gainDB = $0 })
+    }
+
+    /// Honest one-line status for the MONITOR control.
+    private var monitorCaption: String {
+        switch model.monitor.state {
+        case .running:
+            return "LIVE — GAIN → LIMITER (−1 DBFS); SYSTEM DEFAULT UNCHANGED"
+        case let .failed(error):
+            return Self.reason(for: error)
+        case .idle:
+            if ep40InputUID == nil { return "EP-40 AUDIO INPUT NOT DETECTED" }
+            if outputUID == nil { return "NO OUTPUT DEVICE" }
+            return "READY — STARTS AT −12 DB ON PRESS"
+        }
+    }
+
+    private static func reason(for error: MonitorRouteError) -> String {
+        switch error {
+        case .noInputDevice: return "EP-40 AUDIO INPUT NOT DETECTED"
+        case .noOutputDevice: return "NO OUTPUT DEVICE"
+        case .componentUnavailable: return "AUDIO COMPONENT UNAVAILABLE"
+        case let .unitCreation(s): return "AUDIO UNIT ERROR (\(s))"
+        case let .configuration(s): return "ROUTE CONFIG ERROR (\(s))"
+        case let .couldNotStart(s): return "COULD NOT START (\(s))"
+        }
+    }
+
+    private func toggleMonitor() {
+        // Through the app-model wrappers so the halo ring's MON truth updates in
+        // the same breath as the route (never a stale ring state).
+        if isRunning {
+            model.stopMonitor()
+        } else {
+            model.startMonitor(inputUID: ep40InputUID, outputUID: outputUID)
+        }
+    }
 
     var body: some View {
         VStack(spacing: HaloMetrics.s2) {
             HaloPanel("MONITOR") {
                 VStack(alignment: .leading, spacing: HaloMetrics.s2) {
-                    Button("MONITOR") {}
+                    Button(isRunning ? "STOP" : "MONITOR") { toggleMonitor() }
                         .buttonStyle(MechanicalButtonStyle())
-                        .disabled(true)
-                    RailCaption("AUDIO ENGINE — PHASE 2")
+                        .disabled(!canMonitor && !isRunning)
+                    RailCaption(monitorCaption)
+
+                    // Feedback-loop warning (Brief §8 safety): the EP-40 chosen as
+                    // BOTH capture source and monitor output would howl. Surfaced
+                    // explicitly; the user still decides.
+                    if MonitorController.feedbackRisk(inputUID: ep40InputUID, outputUID: outputUID) {
+                        HStack(spacing: HaloMetrics.s1) {
+                            RailTag("FEEDBACK RISK")
+                            Text("OUTPUT IS THE EP-40 INPUT")
+                                .font(HaloType.mono(9))
+                                .foregroundStyle(c.warning)
+                        }
+                    }
 
                     Rectangle().fill(c.ink.opacity(0.12)).frame(height: HaloMetrics.hairline)
 
@@ -29,21 +88,27 @@ struct PlayRail: View {
                         snapshot: model.audioDevices.snapshot,
                         selection: model.audioOutput
                     )
-                    RailCaption("LIVE CORE AUDIO DEVICES — ROUTING SHIPS PHASE 2; SYSTEM DEFAULT UNCHANGED")
+                    RailCaption("LIVE CORE AUDIO DEVICES — SYSTEM DEFAULT UNCHANGED")
 
                     Rectangle().fill(c.ink.opacity(0.12)).frame(height: HaloMetrics.hairline)
 
-                    HaloFader("GAIN", value: $monitorGainDB, in: -40...0, defaultValue: -12) {
+                    HaloFader("GAIN", value: gainBinding, in: -40...0, defaultValue: -12) {
                         String(format: "%.1f DB", $0)
                     }
-                    RailCaption("LOCAL SETTING — APPLIES WHEN MONITORING SHIPS (PHASE 2)")
+                    RailCaption("SAFE MONITORING LEVEL — DEFAULT −12 DB")
+
+                    MonitorProfileSelector(profile: model.monitor.profile,
+                                           locked: isRunning) { model.monitor.profile = $0 }
+                    RailCaption(isRunning
+                        ? "BUFFER PROFILE LOCKED WHILE MONITORING"
+                        : "IO BUFFER — LOW 128 / BALANCED 256 / SAFE 512")
                 }
             }
 
             HaloPanel("METERS") {
                 VStack(alignment: .leading, spacing: HaloMetrics.s2) {
-                    StereoMeter(levels: .silence)
-                    RailCaption("NO AUDIO TRUTH YET — PHASE 2")
+                    StereoMeter(levels: model.monitor.levels)
+                    RailCaption(isRunning ? "LIVE POST-LIMITER LEVELS" : "RESTING — NO ROUTE RUNNING")
                 }
             }
 
@@ -169,6 +234,45 @@ private struct OutputDevicePicker: View {
             ? String(format: "%.0f KHZ", khz)
             : String(format: "%.1f KHZ", khz)
         return "\(rate) · \(device.outputChannels) CH"
+    }
+}
+
+/// Token-built LOW/BALANCED/SAFE profile selector (no stock segmented control —
+/// forbidden shortcut). Locked while a route runs, since the IO buffer size can
+/// only change on a fresh `start` (Brief §8).
+private struct MonitorProfileSelector: View {
+    @Environment(\.halo) private var c
+    let profile: MonitorProfile
+    let locked: Bool
+    let onSelect: (MonitorProfile) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(MonitorProfile.allCases) { p in
+                let selected = p == profile
+                Button { onSelect(p) } label: {
+                    Text(p.label)
+                        .font(HaloType.mono(9))
+                        .foregroundStyle(selected ? c.ink : c.inkSoft)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: HaloMetrics.radiusSmall)
+                                .fill(selected ? c.paperHigh : c.paper.opacity(0.5)))
+                        .overlay {
+                            if selected {
+                                RoundedRectangle(cornerRadius: HaloMetrics.radiusSmall)
+                                    .stroke(c.orange, lineWidth: HaloMechanics.rimWidth)
+                                    .padding(1)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(locked)
+                .opacity(locked && !selected ? 0.4 : 1)
+            }
+        }
     }
 }
 

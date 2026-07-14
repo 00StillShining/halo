@@ -24,7 +24,10 @@ Status legend:
 | Input channel count / supported rates / buffer ranges | **MECHANISM IMPLEMENTED (P2, DD-016)** — `CoreAudioEnumerator` reads in/out channel counts, current + supported nominal rates and buffer-frame ranges for every device; verified against this Mac's real devices. The EP-40's *own* reported values still need the device. | DD-016 | 2026-07-14 |
 | Stable device UID captured | **MECHANISM IMPLEMENTED (P2, DD-016)** — `kAudioDevicePropertyDeviceUID` captured and persisted (never the display name); verified against this Mac's devices. The EP-40's own UID still needs the device. | DD-016 | 2026-07-14 |
 | Core Audio device-list / default-device / sample-rate change observation | **IMPLEMENTED (P2, DD-016)** — `AudioDeviceDiscovery` installs HAL property listeners and republishes a whole snapshot; read-only, never writes the system default. | DD-016 | 2026-07-14 |
-| End-to-end monitor latency @ Low/Balanced/Safe | UNKNOWN | Phase 0A | — |
+| Production monitor route (dual AUHAL + ring + limiter) | **BUILT (P2, DD-017)** — input-only AUHAL + separate output AUHAL bridged through `AudioRingBuffer`, chain = gain → (FX bypass) → −1 dBFS `SafetyLimiter`, metered at 50 Hz; starts only on explicit action at −12 dB, never changes the system default. DSP core unit-tested; the LIVE route through the EP-40 is still needs-device. | DD-017 | 2026-07-14 |
+| EP-40 audio input resolved by name (`ep40AudioInput`) | ASSUMPTION — matches an input device whose name contains "EP-40"/"EP40". Documented inference; real confirmation needs the device. | DD-017 | 2026-07-14 |
+| Cross-clock drift correction | **CONTROLLER BUILT, NOT YET WIRED (P2, DD-017)** — pure `DriftController` (±0.2% ratio from ring fill) + `DriftCompensatingConverter` are unit-tested, but the live render path does not apply them yet; wiring + tuning the varispeed stage needs two real clocks to observe (Phase 0A soak). Worst case today: bounded ring drop/silence-fill after long sessions, never a crash. | DD-017 | 2026-07-14 |
+| End-to-end monitor latency @ Low/Balanced/Safe | UNKNOWN — profiles exposed (128/256/512, `MonitorProfile`); measurement needs-device. | Phase 0A | — |
 | 30-min uninterrupted monitor stability | UNKNOWN | Phase 0A | — |
 | 10× unplug/reconnect clean recovery | UNKNOWN | Phase 0A | — |
 

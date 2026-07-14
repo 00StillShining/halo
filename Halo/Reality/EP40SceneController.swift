@@ -19,6 +19,12 @@ final class EP40SceneController {
     private var sceneGeneration = 0
     private let keyAnimator = KeyTravelAnimator()
     private let ringRig = HaloRingRig()
+
+    /// The ring rig's audio-level bridge, exposed so the monitor route's output
+    /// callback publishes its post-limiter peak into the SAME instance the
+    /// `.monitoring` glow tick reads (P2-route). Audio-callback data never touches
+    /// RealityKit directly — only this atomic seam.
+    var audioLevelBridge: AudioLevelBridge { ringRig.audioLevel }
     private var controls = EP40ControlProjection.rest
     private(set) var palette: HaloPalette = .graphPaper
     private var reduceMotion = false

@@ -10,7 +10,7 @@ import SwiftUI
 @Observable
 final class HaloAppModel {
     var palette: HaloPalette = .graphPaper
-    let scene = EP40SceneController()
+    let scene: EP40SceneController
 
     /// LOAD-mode UI state (Brief §7). UI-only, same honesty class as `mode` — it
     /// never touches displayState / ringState / MIDI (DD-013/DD-014).
@@ -21,6 +21,33 @@ final class HaloAppModel {
     /// the system default; selection persists a stable UID for the Phase 2 route.
     let audioDevices = AudioDeviceDiscovery()
     let audioOutput = AudioOutputSelection()
+
+    /// Monitor route lifecycle (Brief §8). Owns the AUHAL engine, −12 dB-default
+    /// gain, LOW/BALANCED/SAFE profile and the honest meter feed. Monitoring starts
+    /// only on explicit user action; the meter rests at silence otherwise.
+    /// Constructed in `init` so its ring-glow feed is the SAME `AudioLevelBridge`
+    /// instance the scene's `HaloRingRig` reads (a private bridge would publish
+    /// real peaks into a dead end).
+    let monitor: MonitorController
+
+    init() {
+        let sceneController = EP40SceneController()
+        scene = sceneController
+        monitor = MonitorController(levelBridge: sceneController.audioLevelBridge)
+    }
+
+    /// Start the monitor route (explicit user action, Brief §8) and reflect the
+    /// engaged-truth on the halo ring. All monitor start/stop goes through these
+    /// wrappers so `ringState` never lags the route.
+    func startMonitor(inputUID: String?, outputUID: String?) {
+        monitor.start(inputUID: inputUID, outputUID: outputUID)
+        refreshRingState()
+    }
+
+    func stopMonitor() {
+        monitor.stop()
+        refreshRingState()
+    }
 
     // MARK: - Shell (Brief §7). UI-only state — a mode switch never touches
     // displayState / ringState / MIDI paths, so it cannot disturb PREVIEW / WAIT
@@ -121,10 +148,12 @@ final class HaloAppModel {
         let inputs = HaloRingState.Inputs(
             observerRunning: midiObserver != nil,
             endpointConnected: endpointConnected,
-            errorLabel: ringErrorLabel
-            // monitorEngaged / recordingStartedAt / transferProgress have no
-            // producers yet (no audio engine; device transfer is Phase 0B), so
-            // those states are correctly unreachable.
+            errorLabel: ringErrorLabel,
+            monitorEngaged: monitor.isRunning
+            // recordingStartedAt / transferProgress have no producers yet
+            // (recorder is a later phase; device transfer is Phase 0B), so those
+            // states are correctly unreachable. monitorEngaged is REAL as of
+            // P2-route: true only while the AUHAL route is actually running.
         )
         ringState = HaloRingState.derive(inputs)
         scene.applyRing(ringState)
@@ -168,6 +197,8 @@ final class HaloAppModel {
             deviceStatus = "NO DEVICE"
             usbStatus = "IDLE"
             displayStatus = "PREVIEW"
+            // USB removal must stop the monitor route promptly (Brief §8 safety).
+            monitor.stop()
             heldMIDIKeys.removeAll(keepingCapacity: true)
             resetClockTracking()
             present(.previewStill)

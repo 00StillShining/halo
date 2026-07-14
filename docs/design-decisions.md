@@ -645,6 +645,36 @@ connect→live→disconnect, sleep→wake, and background — all via a `model.i
 live CoreMIDI delivery Task, so no MIDI/audio hardware is required. Real sleep/wake + real device-removal
 timing through hardware remain needs-device.
 
+### DD-020 · Local sample import & waveform cache (P3-import)
+**2026-07-14.** Brief §8 sample processing, LOCAL only (no device). Four files under `Halo/Samples/`:
+
+- **`CanonicalAudioBuffer`** (in `SampleProcessor.swift`) — the single internal representation: non-interleaved
+  Float32 per channel at the source's own sample rate. Every edit/summary/export stage reads from this; the
+  container/codec is decoded away exactly once. `monoMixdown()` is equal-average (Brief §8 forbids naïve
+  channel discard).
+- **`SampleProcessor`** — `enum` with `async` entry points (`decode`, `importSample`), so `AVAudioFile`'s
+  blocking reads run off `@MainActor` on the cooperative pool (Brief §2). `AVAudioFile.processingFormat` gives
+  deinterleaved Float32 for every accepted container — this is where MP3/M4A become linear PCM. File read is
+  chunked (`readChunkFrames = 65_536`) to bound scratch memory on long files. Accept list = WAV/AIFF/CAF/MP3/M4A
+  via `SampleSourceFormat(pathExtension:)`; an unsupported extension is rejected **before** touching disk.
+- **`WaveformSummary`** — cached min/max buckets over the mono mixdown (Brief §8 "never render a long file
+  sample-by-sample on the main thread"). Ceil-divide tiling guarantees the buckets cover the whole signal and
+  the last short bucket is still summarised; `bucketCount = min(targetBuckets, frameCount)` so no bucket is ever
+  empty/invented. Per-bucket extrema via vDSP (`vDSP_minv`/`vDSP_maxv`). Empty input → empty summary (honest,
+  never a fabricated shape).
+- **`SampleAsset`** — lightweight UI model (metadata + summary, NOT the heavy buffer) so an `@Observable`
+  library stays cheap to diff. A local import is explicitly NOT a device slot; Brief §3 slot/pad separation is
+  preserved in the doc contract.
+- **`SampleMemoryEstimator`** — device byte figure `frames × channels × 2` (16-bit LinearPCM) + a **measured**
+  container overhead, defaulting to 0 because the EP-40's real header size is device-gated (needs-device) and
+  must not be invented.
+
+Tested headless (`SampleProcessorTests`, 16 cases): decode preserves rate/channels/frames on a generated WAV
+fixture, chunk-boundary long file loses no frames, unsupported extension rejected pre-disk, unreadable file
+throws, import builds asset+summary, and the pure bucketing math (min/max per bucket, ceil-divide tiling,
+one-bucket-per-frame cap, empty input, peak from trough/crest) plus mono mixdown and the memory formula. Real
+MP3/M4A round-trips through hardware codecs and on-device byte acceptance remain needs-device.
+
 ---
 
 _Open decisions awaiting evidence:_

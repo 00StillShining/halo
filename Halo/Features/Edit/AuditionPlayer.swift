@@ -28,18 +28,23 @@ final class AuditionPlayer {
 
     init() { engine.attach(player) }
 
-    /// Play `buffer` (a fully-prepared local window) once. Reconnects the player each
-    /// time because the treatment rate varies per audition. Honest no-op if the engine
-    /// cannot start.
-    func play(_ buffer: AVAudioPCMBuffer, assetID: UUID) {
+    /// Play `buffer` (a fully-prepared local window). Reconnects the player each time
+    /// because the treatment rate varies per audition. Honest no-op if the engine
+    /// cannot start. `loops` seamlessly repeats the buffer (GRAB loop audition, §5b) —
+    /// the grab was zero-cross-trimmed at bar boundaries, so the seam is click-free;
+    /// the natural-end completion is suppressed while looping.
+    func play(_ buffer: AVAudioPCMBuffer, assetID: UUID, loops: Bool = false) {
         stop()
         engine.connect(player, to: engine.mainMixerNode, format: buffer.format)
         guard (try? engine.start()) != nil else { return }   // honest failure: nothing plays
         frames = Int(buffer.frameLength)
         guard frames > 0 else { engine.stop(); return }
 
-        player.scheduleBuffer(buffer, at: nil) { [weak self] in
+        let options: AVAudioPlayerNodeBufferOptions = loops ? [.loops] : []
+        player.scheduleBuffer(buffer, at: nil, options: options) { [weak self] in
             // Completion fires off the main actor — hop back before touching state.
+            // A looping buffer only completes on stop(), so ignore it there.
+            guard !loops else { return }
             Task { @MainActor in self?.finishNatural(assetID) }
         }
         player.play()

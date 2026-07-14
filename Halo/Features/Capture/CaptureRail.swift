@@ -164,37 +164,66 @@ struct CaptureRail: View {
 /// One draggable take card. Dragging registers the file URL (`.fileURL`), which the
 /// existing `StageDropDelegate` already accepts: dropping onto a model pad opens the
 /// prep sheet preselected to that pad — the exact same honest flow as a Finder drop.
-/// No waveform is drawn (the summary cache is a later phase); the RAW tag states that
-/// honestly rather than faking a wave.
+/// No waveform is drawn (the summary cache is a later phase); the RAW/GRAB tag states
+/// the take's provenance honestly rather than faking a wave. A GRAB take adds one-click
+/// PREPARE FOR PAD + a seamless AUDITION ▸ LOOP toggle (Brief §5b).
 private struct TakeRow: View {
     @Environment(\.halo) private var c
+    @Environment(HaloAppModel.self) private var model
     let take: Take
     let reveal: () -> Void
 
-    var body: some View {
-        HStack(spacing: HaloMetrics.s2) {
-            // Hairline-outlined thumbnail block — a placeholder, not a fake wave.
-            RoundedRectangle(cornerRadius: HaloMetrics.radiusSmall)
-                .fill(c.metal.opacity(0.30))
-                .overlay(
-                    RoundedRectangle(cornerRadius: HaloMetrics.radiusSmall)
-                        .stroke(c.ink.opacity(0.22), lineWidth: HaloMetrics.hairline))
-                .overlay(
-                    Text("RAW").font(HaloType.label(8)).haloLabelCase()
-                        .foregroundStyle(c.inkSoft.opacity(0.8)))
-                .frame(width: 44, height: 30)
+    private var isGrab: Bool { take.kind == .grab }
+    private var isPlaying: Bool { model.audition.playingAssetID == take.id }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(take.title)
-                    .font(HaloType.mono(11))
-                    .foregroundStyle(c.ink)
-                    .lineLimit(1).truncationMode(.middle)
-                Text(HaloRecordFormat.takeSummary(take))
-                    .font(HaloType.mono(9))
-                    .foregroundStyle(c.inkSoft.opacity(0.85))
-                    .lineLimit(1).truncationMode(.middle)
+    var body: some View {
+        VStack(alignment: .leading, spacing: HaloMetrics.s1) {
+            HStack(spacing: HaloMetrics.s2) {
+                // Hairline-outlined thumbnail block — a placeholder, not a fake wave.
+                RoundedRectangle(cornerRadius: HaloMetrics.radiusSmall)
+                    .fill(c.metal.opacity(0.30))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: HaloMetrics.radiusSmall)
+                            .stroke(c.ink.opacity(0.22), lineWidth: HaloMetrics.hairline))
+                    .overlay(
+                        Text(isGrab ? "GRAB" : "RAW").font(HaloType.label(8)).haloLabelCase()
+                            .foregroundStyle(c.inkSoft.opacity(0.8)))
+                    .frame(width: 44, height: 30)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(take.title)
+                        .font(HaloType.mono(11))
+                        .foregroundStyle(c.ink)
+                        .lineLimit(1).truncationMode(.middle)
+                    Text(HaloRecordFormat.takeSummary(take))
+                        .font(HaloType.mono(9))
+                        .foregroundStyle(c.inkSoft.opacity(0.85))
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength: 0)
+                if isGrab && isPlaying {
+                    Image(systemName: "repeat")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(c.orange)
+                        .help("Looping")
+                }
             }
-            Spacer(minLength: 0)
+
+            // GRAB takes get inline actions: open the Phase-3 prep sheet (device write
+            // stays disabled), and loop-audition locally (DD-022, no device claim).
+            if isGrab {
+                HStack(spacing: HaloMetrics.s1) {
+                    Button("PREP ▸ PAD") { model.prepareForPad(take) }
+                        .buttonStyle(MechanicalButtonStyle())
+                        .focusable()
+                        .help("Prepare for a pad — opens the prep sheet (device write disabled, Phase 0B)")
+                    Button(isPlaying ? "STOP" : "LOOP") { model.auditionGrab(take) }
+                        .buttonStyle(MechanicalButtonStyle())
+                        .mechanicalEngaged(isPlaying)
+                        .focusable()
+                        .help("Audition ▸ loop locally (system output, not the EP-40)")
+                }
+            }
         }
         .padding(HaloMetrics.s1)
         .background(
@@ -210,6 +239,10 @@ private struct TakeRow: View {
             TakeDragPreview(take: take)
         }
         .contextMenu {
+            if isGrab {
+                Button("Prepare for Pad") { model.prepareForPad(take) }
+                Button(isPlaying ? "Stop Audition" : "Audition ▸ Loop") { model.auditionGrab(take) }
+            }
             Button("Reveal in Finder", action: reveal)
         }
     }
@@ -221,7 +254,7 @@ private struct TakeDragPreview: View {
     let take: Take
     var body: some View {
         HStack(spacing: HaloMetrics.s1) {
-            Text("RAW").font(HaloType.label(8)).haloLabelCase()
+            Text(take.kind == .grab ? "GRAB" : "RAW").font(HaloType.label(8)).haloLabelCase()
                 .foregroundStyle(c.inkSoft)
             Text(take.title)
                 .font(HaloType.mono(10))
@@ -243,6 +276,12 @@ private struct TakeDragPreview: View {
     let model = HaloAppModel()
     // Seed the takes store with fixtures so the rail renders without real files.
     model.takes.seedPreview([
+        Take(id: UUID(),
+             url: URL(fileURLWithPath: "/tmp/grab-2026-07-13-2142-07-08bars-92bpm.wav"),
+             createdAt: Date(timeIntervalSince1970: 1_752_400_000),
+             durationSeconds: 20.9, sampleRate: 48_000, channels: 2, bytes: 6_020_000,
+             title: GrabMath.title(fromFilename: "grab-2026-07-13-2142-07-08bars-92bpm.wav") ?? "GRAB",
+             kind: .grab),
         .previewFixture("take-2026-07-13-2142-07.wav", duration: 92.4, bytes: 26_600_000),
         .previewFixture("take-2026-07-13-2109-55.wav", duration: 18.1, bytes: 5_200_000),
     ])

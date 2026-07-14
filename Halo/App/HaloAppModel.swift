@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import CoreAudio
 import CoreMIDI
 import Foundation
@@ -57,6 +58,15 @@ final class HaloAppModel {
     /// UI-facing dub FX rack state (RACK mode). Writes the atomic bridge above.
     let rack: RackModel
 
+    /// Always-on rolling raw-input capture (P5b-grab, DD-029). The SAME instance is
+    /// shared with the `MonitorController` (so the input callback fills it while a
+    /// route runs) and the `GrabController` (so a grab can freeze the recent past) —
+    /// identical shared-instance ownership to `captureTap` / `rackParameters`.
+    let grabBuffer = RollingCaptureBuffer()
+    /// GRAB loop-capture state (Brief §5b). Bar/seconds preference, observed-clock
+    /// model, and the grab() action that drops a take into `takes`.
+    let grab = GrabController()
+
     /// Local backup-snapshot index (Brief §7 Backups). Scans `Backups/` for dated
     /// snapshot folders. Empty until a verified device layer (Phase 0B) can read
     /// samples off the EP-40 — halo never fabricates a snapshot.
@@ -90,7 +100,8 @@ final class HaloAppModel {
         scene = sceneController
         monitor = MonitorController(levelBridge: sceneController.audioLevelBridge,
                                     captureTap: captureTap,
-                                    rackParams: rackParameters)
+                                    rackParams: rackParameters,
+                                    rollingGrab: grabBuffer)
         recorder = SessionRecorder(tap: captureTap, takes: takes)
         rack = RackModel(parameters: rackParameters)
         self.permission = permission
@@ -128,6 +139,9 @@ final class HaloAppModel {
             guard let self else { return }
             if granted {
                 self.monitor.start(inputUID: inputUID, outputUID: outputUID)
+                // Plant a fresh grab-history floor so a grab in this session can never
+                // reach raw audio captured before the route (re)started (DD-029).
+                if self.monitor.isRunning { self.grabBuffer.resetSession() }
             } else {
                 // Honest refusal: no route opens; the UI shows the real reason.
                 self.monitor.fail(.micPermission)
@@ -209,6 +223,48 @@ final class HaloAppModel {
                 }
             }
         }
+    }
+
+    /// GRAB / ⌘G (Brief §5b). Freezes the recent past out of the always-on rolling
+    /// raw-capture ring into a take. Honest: a no-op when no route runs (the ring only
+    /// fills while the input AUHAL runs, so there is nothing to grab) — the GRAB
+    /// button is disabled with the same real reason. When monitoring, `GrabController`
+    /// resolves the bar/seconds window, zero-cross-trims it and writes one WAV.
+    func grabLoop() {
+        guard monitor.isRunning else { return }
+        grab.grab(buffer: grabBuffer, takes: takes,
+                  sampleRate: activeRouteSampleRate ?? 48_000,
+                  isMonitoring: true)
+    }
+
+    /// AUDITION ▸ LOOP a grab take (Brief §5b). Decodes the WAV locally and loops it
+    /// to the SYSTEM DEFAULT output — the same LOCAL audition path as Edit (DD-022),
+    /// deliberately not the EP-40 route, so it claims nothing about the device. Toggles:
+    /// a second call on the take that is already playing stops it. The loop is seamless
+    /// because the grab was zero-cross-trimmed at bar boundaries.
+    func auditionGrab(_ take: Take) {
+        if audition.playingAssetID == take.id {
+            audition.stop()
+            return
+        }
+        let url = take.url
+        let id = take.id
+        Task { @MainActor in
+            guard let buffer = await Self.decodeLoopBuffer(url: url) else { return }
+            audition.play(buffer, assetID: id, loops: true)
+        }
+    }
+
+    private nonisolated static func decodeLoopBuffer(url: URL) async -> AVAudioPCMBuffer? {
+        guard let decoded = try? await SampleProcessor.decode(url: url) else { return nil }
+        return AuditionPlayer.makeBuffer(channels: decoded.channels, sampleRate: decoded.sampleRate)
+    }
+
+    /// PREPARE FOR PAD (Brief §5b/§7). Opens the existing Phase-3 prep sheet for a grab
+    /// take with no pad preselected. The device SEND + ASSIGN step stays disabled with
+    /// the Phase-0B reason — this IS the "device step disabled with a clear reason".
+    func prepareForPad(_ take: Take) {
+        load.beginPreparation(fileURL: take.url, padHint: nil)
     }
 
     /// EDIT pad target (Brief §7). Sets the mock destination pad and eases the camera
@@ -711,6 +767,9 @@ final class HaloAppModel {
 
         case .start:
             resetClockTracking()
+            // Transport start is bar position 0 → a downbeat. Anchor GRAB's bar grid
+            // here so the first bar boundary is real, not inferred (Brief §5b).
+            grab.markDownbeat(frame: grabBuffer.nowFrame)
             state.mode = .main
             state.isPlaying = true
             state.clockPulse = true
@@ -729,10 +788,22 @@ final class HaloAppModel {
             state.mode = .main
             state.value = Int(position % 1_000)
             state.activityStep = Int(position)
+            // Song position is in 16th notes (6 clocks each). Re-align the bar phase so
+            // GRAB's downbeat detection tracks a mid-song locate; a bar boundary
+            // (16 sixteenths) anchors a downbeat now (Brief §5b).
+            clockCount = Int(position % 16) * 6
+            if position.isMultiple(of: 16) { grab.markDownbeat(frame: grabBuffer.nowFrame) }
 
         case .timingClock:
             clockCount += 1
             updateTempo(from: event.timeStamp)
+
+            // Bar anchoring (Brief §5b): 24 PPQN × 4 beats = 96 clocks per bar. Snapshot
+            // the rolling-buffer frame the moment a downbeat tick is delivered on the
+            // main actor — bar-aligned from the OBSERVED clock (latency caveat is
+            // needs-device; the zero-cross trim cleans the seam). Placed before the
+            // visual-throttle early-return below so a downbeat is never skipped.
+            if clockCount.isMultiple(of: 96) { grab.markDownbeat(frame: grabBuffer.nowFrame) }
 
             // MIDI clock arrives at 24 PPQN. Redrawing every message would be
             // wasteful; eight visual updates per quarter note preserve the feel.
@@ -785,7 +856,13 @@ final class HaloAppModel {
         // even at 24 PPQN. HONEST: derived only from real clock messages.
         if let interval = smoothedClockInterval, interval > 0 {
             let bpm = 60 / (interval * 24)
-            if (30...300).contains(bpm) { rack.updateClockBPM(bpm) }
+            if (30...300).contains(bpm) {
+                rack.updateClockBPM(bpm)
+                // Feed the same observed clock to GRAB (bar-aligned window). Derived
+                // only from real clock messages; never an invented tempo (Brief §1/§4).
+                grab.updateClock(secondsPerClock: interval,
+                                 sampleRate: activeRouteSampleRate ?? 48_000)
+            }
         }
     }
 
@@ -795,6 +872,8 @@ final class HaloAppModel {
         smoothedClockInterval = nil
         // No clock observed → the rack falls back to tap tempo (never an invented BPM).
         rack.updateClockBPM(nil)
+        // GRAB drops to the last-N-seconds path with an EST bpm until a clock returns.
+        grab.clockLost()
     }
 
     private func applyPadMapping(for note: UInt8, to state: inout EP40DisplayState) {

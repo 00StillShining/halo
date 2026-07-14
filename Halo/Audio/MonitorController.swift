@@ -57,6 +57,9 @@ final class MonitorController {
     /// Shared dub FX rack parameter bridge (P5a-rack). Passed into every route config
     /// so the output callback can read it; nil when no rack is attached.
     private let rackParams: RackParameters?
+    /// Shared always-on rolling raw-capture ring (P5b-grab). Passed into every route
+    /// config so the input callback fills it; nil when no grab buffer is attached.
+    private let rollingGrab: RollingCaptureBuffer?
     private let gainStore: MonitorPreferenceStore
     private var meterTask: Task<Void, Never>?
 
@@ -67,11 +70,13 @@ final class MonitorController {
          levelBridge: AudioLevelBridge = AudioLevelBridge(),
          captureTap: CaptureTap? = nil,
          rackParams: RackParameters? = nil,
+         rollingGrab: RollingCaptureBuffer? = nil,
          gainStore: MonitorPreferenceStore = UserDefaults.standard) {
         self.engine = engine
         self.levelBridge = levelBridge
         self.captureTap = captureTap
         self.rackParams = rackParams
+        self.rollingGrab = rollingGrab
         self.gainStore = gainStore
         // Restore the remembered fader position (clamped), or the −12 dB default when
         // unset. Assigning in `init` does NOT fire `didSet`, so this neither persists
@@ -108,7 +113,8 @@ final class MonitorController {
             initialGainDB: gainDB,
             levelBridge: levelBridge,
             captureTap: captureTap,
-            rackParams: rackParams)
+            rackParams: rackParams,
+            rollingGrab: rollingGrab)
         do {
             try engine.start(config: config)
             activeInputUID = inputUID

@@ -975,6 +975,54 @@ point the P2 route reserved (the old `fxBypassed` atomic is replaced by the rack
   travel, orange reserved for engaged/committed). NEEDS-DEVICE: live-clock sync feel, CPU
   on battery and the 30-min rack-engaged stability soak are validated on hardware.
 
+### DD-029 — GRAB: always-on rolling raw ring, bar-aligned freeze, loop take (P5b-grab)
+
+Phase 5b (Brief §5b) adds `GRAB` / ⌘G: freeze the recent past of the monitored input
+into a bar-aligned (or seconds) loop take that lands in the existing `TakesStore`,
+auditions looped, and one-clicks into the Phase-3 prep sheet.
+
+- **Always-on rolling RAW ring** (`Halo/Audio/RollingCaptureBuffer.swift`): a fixed
+  **32 MiB / 4 194 304-frame** (60 s @ 48 k) interleaved-stereo ring, sized once and
+  independent of route rate (≈30 s @ 96 k — still ≫ the 8-bar default at realistic
+  tempos; grabs then clamp to resident history honestly). The **input** callback
+  (`monitorInputRender`) is the single fixed producer and writes UNCONDITIONALLY while a
+  route runs — the SAME raw pre-gain/pre-limiter/pre-FX stream the monitor bridges. RT-
+  safe: one relaxed load, a masked copy, one release store; no alloc/lock/log/retain
+  (Brief §8). The main actor is the sole reader via a **seqlock snapshot** that refuses a
+  window the producer overran mid-copy — a torn loop is dropped, never returned.
+- **RAW-only; PRINT-FX grab deferred (scoping, not device-gated).** A rack-engaged grab
+  is still a clean RAW loop (satisfies "works during rack-engaged monitoring" + "grabs
+  remain raw/pre-FX"). An always-on ring cannot switch producers between the input and
+  output callbacks live (PRINT FX toggles mid-monitoring) without breaking the single-
+  producer SPSC contract — a data race would be an automatic §1/§4 fail — so a post-FX
+  grab is **not** shipped, and the caption always states `RAW`. Never a silently-faked
+  post-FX grab.
+- **Bar alignment from observed clock.** `GrabController.markDownbeat(frame:)` snapshots
+  the ring's absolute frame counter the moment a downbeat tick is delivered on the main
+  actor (24 PPQN × 4 = 96 clocks/bar; also anchored on transport `.start` and a bar-
+  boundary `.songPosition`). This is inherently subject to MIDI + callback latency —
+  presented as "bar-aligned from observed clock", cleaned by the zero-cross trim; verified
+  loop *feel* through hardware is **needs-device**. Never sample-exact device sync.
+- **BPM without clock is an EST.** `GrabMath.estimateBPM` (onset-envelope autocorrelation)
+  is labelled `~N BPM (EST)` everywhere and baked into the filename with an `est` marker.
+  It is never fed to the rack or claimed as device truth.
+- **Seamless loop = zero-cross same-slope trim.** Both window ends snap to the nearest
+  rising (neg→pos) crossing of the mono mixdown (`GrabMath.snapToZeroCrossing`), so the
+  seam matches sign+slope. Audition loops locally to the system default (DD-022), claiming
+  nothing about the device.
+- **Session-scoped, honest empties.** `resetSession()` plants a `floor` at route (re)start
+  so a grab can never reach audio from a previous session; empty/insufficient history →
+  no take + an honest reason (`emptyHistory` / `truncated N/asked bars`), never a
+  fabricated loop. ⌘G is a no-op when no route runs (the ring only fills then).
+- **Naming lives in the filename (no DB).** `GrabMath.filename/title` round-trip
+  bars/bpm/seconds; `Take.kind` (`.grab`) is parsed from the `grab-` prefix, so grabs
+  survive relaunch by directory scan with real computed values.
+- **PREPARE FOR PAD reuses the Phase-3 sheet** (`load.beginPreparation`) with the device
+  `SEND + ASSIGN` step already disabled with the Phase-0B reason — this IS the "device
+  step disabled with a clear reason".
+- Pure bar-math, zero-cross trim, BPM and naming are unit-tested (`GrabMathTests`, 16
+  cases) plus a rolling-buffer wrap round-trip + floor gating.
+
 ---
 
 _Open decisions awaiting evidence:_

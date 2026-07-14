@@ -19,6 +19,34 @@ struct PlayRail: View {
     private var outputUID: String? { model.resolvedOutputUID }
     private var canMonitor: Bool { model.canMonitor }
     private var isRunning: Bool { model.monitor.isRunning }
+    private var grab: GrabController { model.grab }
+
+    /// Honest one-line status for the GRAB control. A recent grab result flashes for
+    /// ~2 s (it really happened); otherwise the steady line states the real window +
+    /// provenance. The grab always captures RAW input (pre-FX) — stated so a
+    /// rack-engaged grab is never mistaken for a printed-FX loop (DD-029).
+    private var grabCaption: String {
+        switch grab.lastResult {
+        case let .grabbed(take) where take.kind == .grab:
+            return grab.hasClock ? "GRABBED · \(grab.bars) BARS" : "GRABBED · \(grab.seconds) S"
+        case let .truncated(_, asked, got):
+            return "GRABBED · \(got)/\(asked) BARS — LIMITED BY 60 S HISTORY"
+        case .emptyHistory:
+            return "NOT ENOUGH HISTORY YET — KEEP PLAYING"
+        case .notMonitoring:
+            return "MONITOR OFF — START MONITORING TO GRAB"
+        case let .failed(reason):
+            return reason
+        case .grabbed, .none:
+            break
+        }
+        if !isRunning { return "MONITOR OFF — START MONITORING TO GRAB" }
+        if grab.hasClock {
+            let bpm = grab.bpm.map { Int($0.rounded()) } ?? 0
+            return "GRABS LAST \(grab.bars) BARS @ \(bpm) BPM · BAR-ALIGNED · RAW"
+        }
+        return "NO MIDI CLOCK — GRABS LAST \(grab.seconds) S · BPM IS A GUESS · RAW"
+    }
 
     /// The coarse MONITOR gate state (P4-states). Permission is the first gate — a
     /// denied device can never capture honestly (Brief §1/§4). Device-absence
@@ -198,11 +226,27 @@ struct PlayRail: View {
                         .focusable(isRunning || isRecording)
                         .help(isRecording ? "Stop recording — ⌘R" : "Record raw input — ⌘R")
                     RailCaption(recordCaption)
-                    Button("GRAB") {}
+
+                    Rectangle().fill(c.ink.opacity(0.12)).frame(height: HaloMetrics.hairline)
+
+                    Button("GRAB") { model.grabLoop() }
                         .buttonStyle(MechanicalButtonStyle())
-                        .disabled(true)
-                        .help("Loop grab — Phase 5b")
-                    RailCaption("LOOP GRAB — PHASE 5B")
+                        .disabled(!isRunning)
+                        .focusable(isRunning)
+                        .help("Grab last \(grab.hasClock ? "\(grab.bars) bars" : "\(grab.seconds) s") — ⌘G")
+
+                    // Clocked → bar count (4/8/16); no clock → seconds (5/10/30). The
+                    // window is honest either way (bar-aligned vs last-N-seconds).
+                    if grab.hasClock {
+                        GrabSegmentedSelector(choices: GrabController.barChoices,
+                                              selected: grab.bars, suffix: "BARS",
+                                              locked: !isRunning) { model.grab.bars = $0 }
+                    } else {
+                        GrabSegmentedSelector(choices: GrabController.secondsChoices,
+                                              selected: grab.seconds, suffix: "SEC",
+                                              locked: !isRunning) { model.grab.seconds = $0 }
+                    }
+                    RailCaption(grabCaption)
                 }
             }
         }
@@ -359,6 +403,57 @@ private struct MonitorProfileSelector: View {
                 .haloFocusRim()
                 .help("IO buffer profile · \(p.label)")
             }
+        }
+    }
+}
+
+/// Token-built segmented selector for the GRAB window (4/8/16 BARS or 5/10/30 SEC).
+/// Same visual language as `MonitorProfileSelector` (paperHigh fill + orange rim on
+/// the selected segment, drawn focus rim) — no stock segmented control. A trailing
+/// unit label names what the numbers mean. Disabled while no route runs.
+private struct GrabSegmentedSelector: View {
+    @Environment(\.halo) private var c
+    let choices: [Int]
+    let selected: Int
+    let suffix: String
+    let locked: Bool
+    let onSelect: (Int) -> Void
+
+    var body: some View {
+        HStack(spacing: HaloMetrics.s1) {
+            HStack(spacing: 2) {
+                ForEach(choices, id: \.self) { value in
+                    let isSelected = value == selected
+                    Button { onSelect(value) } label: {
+                        Text("\(value)")
+                            .font(HaloType.mono(9))
+                            .foregroundStyle(isSelected ? c.ink : c.inkSoft)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: HaloMetrics.radiusSmall)
+                                    .fill(isSelected ? c.paperHigh : c.paper.opacity(0.5)))
+                            .overlay {
+                                if isSelected {
+                                    RoundedRectangle(cornerRadius: HaloMetrics.radiusSmall)
+                                        .stroke(c.orange, lineWidth: HaloMechanics.rimWidth)
+                                        .padding(1)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(locked)
+                    .opacity(locked && !isSelected ? 0.4 : 1)
+                    .focusable(!locked)
+                    .haloFocusRim()
+                    .help("GRAB window · \(value) \(suffix)")
+                }
+            }
+            Text(suffix)
+                .font(HaloType.label(9))
+                .haloLabelCase()
+                .foregroundStyle(c.inkSoft)
         }
     }
 }

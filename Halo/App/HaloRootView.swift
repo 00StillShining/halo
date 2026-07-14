@@ -75,6 +75,15 @@ struct HaloRootView: View {
                 .opacity(0)
                 .accessibilityHidden(true)
         }
+        // ⌘G grabs the recent past into a loop take (Brief §5b). Same hidden-shortcut
+        // pattern as ⌘M/⌘D. `grabLoop` is a no-op when no route runs, so the chord
+        // never fabricates a take.
+        .background {
+            Button("", action: { model.grabLoop() })
+                .keyboardShortcut("g", modifiers: .command)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
         .onKeyPress(.escape) {
             model.transients.handleEscape() ? .handled : .ignored
         }

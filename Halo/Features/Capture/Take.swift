@@ -6,6 +6,14 @@ import AppKit
 /// disk via `AVAudioFile`/`FileManager` (Brief §1/§4 honesty); nothing is invented.
 /// Persistence IS the file: there is no separate database, so takes survive relaunch
 /// simply by scanning the Recordings directory.
+/// How a take was captured. Derived from the on-disk filename (persistence IS the
+/// file, DD-029) — a `grab-` prefix marks an instant loop grab, everything else a
+/// session recording. No sidecar DB, so the kind survives relaunch by directory scan.
+enum TakeKind: Sendable, Equatable, Hashable {
+    case session
+    case grab
+}
+
 struct Take: Identifiable, Sendable, Equatable, Hashable {
     let id: UUID
     let url: URL
@@ -15,14 +23,16 @@ struct Take: Identifiable, Sendable, Equatable, Hashable {
     let channels: Int
     let bytes: Int
     var title: String
+    var kind: TakeKind = .session
 
     #if DEBUG
     /// Memberwise fixture for previews only (no real file required).
-    static func previewFixture(_ name: String, duration: Double, bytes: Int) -> Take {
+    static func previewFixture(_ name: String, duration: Double, bytes: Int,
+                               kind: TakeKind = .session) -> Take {
         Take(id: UUID(), url: URL(fileURLWithPath: "/tmp/\(name)"),
              createdAt: Date(timeIntervalSince1970: 1_752_400_000),
              durationSeconds: duration, sampleRate: 48_000, channels: 2,
-             bytes: bytes, title: name.uppercased())
+             bytes: bytes, title: name.uppercased(), kind: kind)
     }
     #endif
 }
@@ -92,6 +102,13 @@ final class TakesStore {
         let bytes = (attrs?[.size] as? Int) ?? 0
         let created = (attrs?[.creationDate] as? Date) ?? Date()
 
+        // A `grab-` filename is a GRAB take; its bars/bpm come straight from the
+        // filename (real computed values, DD-029), never invented. Anything else is a
+        // session recording titled by its creation time.
+        let name = url.lastPathComponent
+        let grabTitle = GrabMath.title(fromFilename: name)
+        let kind: TakeKind = grabTitle != nil ? .grab : .session
+
         return Take(
             id: UUID(),
             url: url,
@@ -100,7 +117,8 @@ final class TakesStore {
             sampleRate: Int(sampleRate.rounded()),
             channels: Int(format.channelCount),
             bytes: bytes,
-            title: Self.title(for: created))
+            title: grabTitle ?? Self.title(for: created),
+            kind: kind)
     }
 
     nonisolated static func title(for date: Date) -> String {

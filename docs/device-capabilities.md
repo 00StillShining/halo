@@ -47,6 +47,9 @@ Status legend:
 | Play / Stop / Record **transmit** transport | UNKNOWN | Phase 0A | — |
 | Hardware **record state** observable (for `button_record` lighting) | **NOT observable via documented USB MIDI** — no Record realtime message; `EP40DisplayState` has no record field. `button_record` stays unlit by design (DD-010). needsDevice: revisit in Phase 0B. | research/02, DD-010 | — |
 | MIDI clock SEND (24 PPQN, stable) | UNKNOWN — needed for 5b | Phase 0A | — |
+| GRAB rolling raw history (60 s @ 48 k, fixed 32 MiB ring) | **Mac-side FACT** (DD-029) — an always-on `RollingCaptureBuffer` captures the raw pre-FX monitor input while a route runs; grab freezes the last 4/8/16 bars (clocked) or 5/10/30 s (no clock, EST bpm), zero-cross-trimmed. Pure math unit-tested. | Brief §5b, DD-029 | 2026-07-14 |
+| GRAB bar-accurate loop *feel* through hardware | needsDevice — bar boundaries are anchored from the delivered downbeat tick, subject to MIDI + callback latency; the seamless-loop feel is verified on-device (Phase 0A clock). | Brief §5b, DD-029 | — |
+| GRAB print-through of PRINT-FX (post-rack) loop | needsDevice-adjacent — deferred by SPSC single-producer safety (DD-029), not device-gated. The always-on ring stays RAW; a post-FX grab would need a second ring/producer. | DD-029 | 2026-07-14 |
 | Device transmits CC 12/13 when X/Y knobs move | UNKNOWN — likely NOT | Phase 0A | — |
 | CC inputs recognised (1,12,13,64) | DOCUMENTED | Brief §3 | — |
 | Bank Select + PC selects sounds 1–999 (exact scheme) | DOCUMENTED, scheme unverified | Phase 0A read-only | — |

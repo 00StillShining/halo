@@ -21,6 +21,10 @@ struct MonitorRouteConfig: Sendable {
     /// Optional dub FX rack parameter bridge (P5a-rack). Shared with the UI's
     /// `RackModel`; the output callback reads it once per block. Nil = no rack.
     let rackParams: RackParameters?
+    /// Optional always-on rolling raw-capture ring (P5b-grab). The input callback
+    /// writes the raw pre-monitor stream here continuously so GRAB can freeze the
+    /// recent past. Nil = no grab buffer attached to this route.
+    let rollingGrab: RollingCaptureBuffer?
 }
 
 /// Why a route could not be opened. Surfaced honestly to the UI (Brief §1/§4) — no
@@ -98,7 +102,8 @@ final class EP40AudioRouter: MonitorEngine, @unchecked Sendable {
             initialGainDB: config.initialGainDB,
             levelBridge: config.levelBridge,
             captureTap: config.captureTap,
-            rackParams: config.rackParams)
+            rackParams: config.rackParams,
+            rollingGrab: config.rollingGrab)
         let ref = Unmanaged.passUnretained(ctx)
         let refcon = ref.toOpaque()
 

@@ -53,17 +53,24 @@ final class MonitorRenderContext: @unchecked Sendable {
     /// attached but not armed.
     let captureTap: CaptureTap?
 
+    /// Always-on rolling raw-input capture (P5b-grab). The input callback writes the
+    /// SAME raw pre-gain/pre-limiter/pre-FX stream it bridges to the monitor into this
+    /// ring UNCONDITIONALLY while a route runs, so GRAB can freeze the recent past.
+    /// Nil when no grab buffer is attached; a single masked copy per block otherwise.
+    let rollingGrab: RollingCaptureBuffer?
+
     /// UI→RT gain bridge: linear amplitude bit-pattern, written by the main actor,
     /// read once per output block. Lock-free (Brief §8).
     let gainTargetBits: Atomic<UInt32>
 
     init(sampleRate: Double, maxFrames: Int, initialGainDB: Double,
          levelBridge: AudioLevelBridge, captureTap: CaptureTap? = nil,
-         rackParams: RackParameters? = nil) {
+         rackParams: RackParameters? = nil, rollingGrab: RollingCaptureBuffer? = nil) {
         self.maxFrames = maxFrames
         self.levelBridge = levelBridge
         self.captureTap = captureTap
         self.rackParams = rackParams
+        self.rollingGrab = rollingGrab
 
         var asbd = AudioStreamBasicDescription()
         asbd.mSampleRate = sampleRate
@@ -194,6 +201,12 @@ func monitorInputRender(
     // Best-effort write; if the consumer is momentarily behind we drop the overflow
     // rather than block (Brief §8: callbacks never block).
     ctx.ringBuffer.write(src, count: needed)
+
+    // P5b-grab: always-rolling raw capture. Unconditional while the route runs — the
+    // ring overwrites its own oldest frames — so GRAB can always freeze the recent
+    // past. RT-safe: a preallocated masked copy + one release store, no branch on any
+    // UI flag (the buffer is the single fixed producer, this callback).
+    ctx.rollingGrab?.write(src, frames: frames)
 
     // P2-recorder: tap the RAW pre-monitor stream (before gain/limiter/FX) into the
     // recorder's OWN ring when armed AND not in PRINT FX mode (post-FX is produced by

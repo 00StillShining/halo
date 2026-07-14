@@ -15,12 +15,38 @@ struct PlayRail: View {
     @Environment(\.halo) private var c
     @Environment(HaloAppModel.self) private var model
 
-    private var ep40InputUID: String? { model.audioDevices.snapshot.ep40AudioInput?.uid }
-    private var outputUID: String? {
-        model.audioOutput.resolution(in: model.audioDevices.snapshot).device?.uid
-    }
-    private var canMonitor: Bool { ep40InputUID != nil && outputUID != nil }
+    private var ep40InputUID: String? { model.ep40AudioInputUID }
+    private var outputUID: String? { model.resolvedOutputUID }
+    private var canMonitor: Bool { model.canMonitor }
     private var isRunning: Bool { model.monitor.isRunning }
+
+    /// The coarse MONITOR gate state (P4-states). Permission is the first gate — a
+    /// denied device can never capture honestly (Brief §1/§4). Device-absence
+    /// failures map to their specific plates; a genuine engine failure keeps the
+    /// error+retry treatment. `.notDetermined` falls through to `.ready` so the
+    /// button itself prompts once (existing `ensureAuthorized`).
+    private enum MonitorBlock: Equatable { case ready, permission, offline, disconnected, failed(MonitorRouteError) }
+
+    private var monitorBlock: MonitorBlock {
+        if model.permission.status == .denied || model.permission.status == .restricted {
+            return .permission
+        }
+        switch model.monitor.state {
+        case let .failed(error):
+            switch error {
+            case .noOutputDevice: return .offline
+            case .noInputDevice:  return .disconnected
+            case .micPermission:  return .permission
+            default:              return .failed(error)
+            }
+        case .running:
+            return .ready
+        case .idle:
+            if outputUID == nil { return .offline }
+            if ep40InputUID == nil { return .disconnected }
+            return .ready
+        }
+    }
 
     private var gainBinding: Binding<Double> {
         Binding(get: { model.monitor.gainDB }, set: { model.monitor.gainDB = $0 })
@@ -74,13 +100,42 @@ struct PlayRail: View {
         }
     }
 
-    private func toggleMonitor() {
-        // Through the app-model wrappers so the halo ring's MON truth updates in
-        // the same breath as the route (never a stale ring state).
+    /// MONITOR control area: the live/ready button + caption on the happy path, or a
+    /// `HaloStatePlate` carrying the honest reason and correct action when blocked —
+    /// so the blocked state reaches the same standard as the happy path (P4-states).
+    @ViewBuilder private var monitorControl: some View {
         if isRunning {
-            model.stopMonitor()
+            Button("STOP") { model.toggleMonitor() }
+                .buttonStyle(MechanicalButtonStyle())
+                .mechanicalEngaged(true)
+                .focusable()
+                .help("Stop monitoring — ⌘M")
+            RailCaption(monitorCaption)
         } else {
-            model.startMonitor(inputUID: ep40InputUID, outputUID: outputUID)
+            switch monitorBlock {
+            case .permission:
+                HaloStatePlate(kind: .permission, title: "MIC ACCESS DENIED",
+                    reason: "HALO CAPTURES THE EP-40 AS A USB INPUT — ENABLE IN SYSTEM SETTINGS.",
+                    actionLabel: "OPEN SETTINGS",
+                    actionHelp: "Open Privacy › Microphone settings") { model.openMicSettings() }
+            case .offline:
+                HaloStatePlate(kind: .offline, title: "NO OUTPUT DEVICE",
+                    reason: "CONNECT AN OUTPUT OR ENABLE A MAC OUTPUT.")
+            case .disconnected:
+                HaloStatePlate(kind: .disconnected, title: "EP-40 AUDIO INPUT NOT DETECTED",
+                    reason: "CONNECT THE EP-40 BY USB-C.")
+            case let .failed(error):
+                HaloStatePlate(kind: .error, title: "MONITOR FAILED",
+                    reason: Self.reason(for: error),
+                    actionLabel: "TRY AGAIN",
+                    actionHelp: "Restart the monitor route") { model.toggleMonitor() }
+            case .ready:
+                Button("MONITOR") { model.toggleMonitor() }
+                    .buttonStyle(MechanicalButtonStyle())
+                    .focusable()
+                    .help("Start monitoring — ⌘M")
+                RailCaption(monitorCaption)
+            }
         }
     }
 
@@ -88,10 +143,7 @@ struct PlayRail: View {
         VStack(spacing: HaloMetrics.s2) {
             HaloPanel("MONITOR") {
                 VStack(alignment: .leading, spacing: HaloMetrics.s2) {
-                    Button(isRunning ? "STOP" : "MONITOR") { toggleMonitor() }
-                        .buttonStyle(MechanicalButtonStyle())
-                        .disabled(!canMonitor && !isRunning)
-                    RailCaption(monitorCaption)
+                    monitorControl
 
                     // Feedback-loop warning (Brief §8 safety): the EP-40 chosen as
                     // BOTH capture source and monitor output would howl. Surfaced
@@ -118,6 +170,7 @@ struct PlayRail: View {
                     HaloFader("GAIN", value: gainBinding, in: -40...0, defaultValue: -12) {
                         String(format: "%.1f DB", $0)
                     }
+                    .help("Monitor gain — arrow keys adjust; remembered across launches")
                     RailCaption("SAFE MONITORING LEVEL — DEFAULT −12 DB")
 
                     MonitorProfileSelector(profile: model.monitor.profile,
@@ -142,10 +195,13 @@ struct PlayRail: View {
                         .buttonStyle(MechanicalButtonStyle())
                         .mechanicalEngaged(isRecording)
                         .disabled(!isRunning && !isRecording)
+                        .focusable(isRunning || isRecording)
+                        .help(isRecording ? "Stop recording — ⌘R" : "Record raw input — ⌘R")
                     RailCaption(recordCaption)
                     Button("GRAB") {}
                         .buttonStyle(MechanicalButtonStyle())
                         .disabled(true)
+                        .help("Loop grab — Phase 5b")
                     RailCaption("LOOP GRAB — PHASE 5B")
                 }
             }
@@ -194,6 +250,9 @@ private struct OutputDevicePicker: View {
             }
             .buttonStyle(.plain)
             .disabled(snapshot.outputs.isEmpty)
+            .focusable(!snapshot.outputs.isEmpty)
+            .haloFocusRim()
+            .help("Choose the monitor output device (never changes the system default)")
 
             // Honest provenance + real device facts for the resolved output. The
             // fallback tag names the ACTUAL fallback rule that fired: `.fallbackFirst`
@@ -296,6 +355,9 @@ private struct MonitorProfileSelector: View {
                 .buttonStyle(.plain)
                 .disabled(locked)
                 .opacity(locked && !selected ? 0.4 : 1)
+                .focusable(!locked)
+                .haloFocusRim()
+                .help("IO buffer profile · \(p.label)")
             }
         }
     }

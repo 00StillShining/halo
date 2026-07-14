@@ -9,6 +9,23 @@ import simd
 @Observable
 final class EP40SceneController {
 
+    /// Honest scene-load phase (P4-states, DD-025/DD-026). Distinct from
+    /// `isPlaceholder`, which conflates "still loading" with "fell back to
+    /// procedural" (both `true`). The stage LOADING plate keys off `.loading` ONLY,
+    /// so it disappears the instant the USDZ resolves OR the procedural fallback
+    /// lands — never a lingering spinner. The `PLACEHOLDER MODEL` status chip keeps
+    /// keying off `isPlaceholder`, unchanged.
+    enum LoadPhase: Equatable {
+        case loading, loaded, fallback
+
+        /// Pure terminal-phase derivation from the loader's placeholder result, so it
+        /// is unit-tested (`SceneLoadPhaseTests`) without loading a RealityKit scene.
+        static func terminal(isPlaceholder: Bool) -> LoadPhase {
+            isPlaceholder ? .fallback : .loaded
+        }
+    }
+    private(set) var loadPhase: LoadPhase = .loading
+
     private(set) var isPlaceholder = true
     private(set) var missing: [EP40Entity] = []
     private(set) var resolved: [EP40Entity: Entity] = [:]
@@ -54,6 +71,7 @@ final class EP40SceneController {
     func makeScene() async -> Entity {
         sceneGeneration += 1
         let generation = sceneGeneration
+        loadPhase = .loading
         let world = Entity()
         world.name = "halo_world"
 
@@ -76,6 +94,9 @@ final class EP40SceneController {
         // Only the latest generation is allowed to become the update target.
         if generation == sceneGeneration, !Task.isCancelled {
             isPlaceholder = result.isPlaceholder
+            // Honest, distinct terminal phase: the USDZ resolved, or we fell back to
+            // the procedural model. Either way the LOADING window has closed.
+            loadPhase = .terminal(isPlaceholder: result.isPlaceholder)
             resolved = result.resolved
             missing = result.missing
             modelRoot = result.root

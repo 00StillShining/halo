@@ -13,14 +13,35 @@ final class LoadSession {
 
     enum Tab: String, CaseIterable { case pads = "PADS", sounds = "SOUNDS" }
 
-    var tab: Tab = .pads
-    var selectedGroup = 0                          // 0…3 = A…D
-    var selectedGridIndex: Int? = nil              // PADS board selection
-    var selectedSlot: SampleSlotID? = nil          // SOUNDS table selection
+    /// Last LOAD tab (PADS/SOUNDS). Persisted (P4-states, DD-027) so the workflow
+    /// resumes where the user left it. `didSet` writes; `init` restores.
+    var tab: Tab = .pads { didSet { guard !isRestoring, tab != oldValue else { return }; store.setLoadTab(tab.rawValue) } }
+    /// Last selected group A–D (0…3). Persisted — the UI selection only; "project"
+    /// is a device concept (Phase 0B), so no device claim is made (DD-027).
+    var selectedGroup = 0 { didSet { guard !isRestoring, selectedGroup != oldValue else { return }; store.setLoadGroup(selectedGroup) } }
+    var selectedGridIndex: Int? = nil              // PADS board selection — ephemeral
+    var selectedSlot: SampleSlotID? = nil          // SOUNDS table selection — ephemeral
     private(set) var prep: PrepRequest? = nil
 
     /// The single mock source of truth for this session.
     let library = MockDeviceLibrary.standard
+
+    private let store: LoadPreferenceStore
+    /// True only during `init` restore so the `didSet`s don't re-persist the value
+    /// they just read (a property with a default value fires its observer on any
+    /// later assignment, including inside the initializer).
+    private var isRestoring = true
+
+    /// - Parameter store: persistence seam for the remembered tab + group. Injectable
+    ///   so `LoadPreferenceTests` round-trips headless with an in-memory double.
+    init(store: LoadPreferenceStore = UserDefaults.standard) {
+        self.store = store
+        // Restore the remembered UI selection (defaults: PADS, group 0). The
+        // `isRestoring` guard keeps this read-back from writing straight back out.
+        if let raw = store.loadTab(), let restored = Tab(rawValue: raw) { tab = restored }
+        if let g = store.loadGroup(), (0..<4).contains(g) { selectedGroup = g }
+        isRestoring = false
+    }
 
     // MARK: - Preparation sheet
 
@@ -54,6 +75,31 @@ final class LoadSession {
     /// `#Preview` can show the sheet without a real audio file on disk.
     func injectPreviewPrep(_ request: PrepRequest) { prep = request }
     #endif
+}
+
+// MARK: - Persistence seam (P4-states, DD-027)
+
+/// Remembered LOAD UI selection (last tab + group). A protocol so unit tests use an
+/// in-memory double instead of shared `UserDefaults`, mirroring `AudioPreferenceStore`.
+/// Scope note: this persists the UI selection only — "project" is a device concept
+/// (Phase 0B); today only the mock tab/group is remembered, no device claim.
+protocol LoadPreferenceStore: AnyObject {
+    func loadTab() -> String?
+    func setLoadTab(_ raw: String)
+    func loadGroup() -> Int?
+    func setLoadGroup(_ group: Int)
+}
+
+extension UserDefaults: LoadPreferenceStore {
+    private static let loadTabKey = "halo.load.tab"
+    private static let loadGroupKey = "halo.load.group"
+
+    func loadTab() -> String? { string(forKey: Self.loadTabKey) }
+    func setLoadTab(_ raw: String) { set(raw, forKey: Self.loadTabKey) }
+    func loadGroup() -> Int? {
+        object(forKey: Self.loadGroupKey) == nil ? nil : integer(forKey: Self.loadGroupKey)
+    }
+    func setLoadGroup(_ group: Int) { set(group, forKey: Self.loadGroupKey) }
 }
 
 // MARK: - Preparation request

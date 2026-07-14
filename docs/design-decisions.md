@@ -845,6 +845,93 @@ write into halo's own transparent folder — no safety gate).
   the empty trace with **no standalone OBSERVED token**, live-block values present, and
   the trace scaffold's empty→record→clear seam.
 
+### DD-025 — Unified non-happy-path state vocabulary (`HaloStatePlate`) (P4-states)
+
+Every empty / loading / permission / offline / disconnected / busy / recoverable-error
+surface now resolves through ONE manufactured primitive, `HaloStatePlate`
+(`DesignSystem/HaloStatePlate.swift`), raised to the same standard as the happy path
+(Brief §7 P4). Before this the rails hand-rolled each blocked state (`RailCaption("NO
+TAKES YET…")`, em-dash rows, a disabled button + one-liner), so "empty" in Capture
+looked nothing like "blocked" in Play.
+
+- **Anatomy (tokens only).** A leading 2 px accent bar (echoing the rail extrusion
+  strip / the mechanical engaged bar), an uppercase-tracked `label(11)` state word, a
+  one-line `mono(10)` honest reason, an optional single `MechanicalButtonStyle` action
+  with a tooltip, and an optional track. No SF-Symbol icon, no card blur, 2 px radius.
+- **`HaloStateKind` → tint.** Only `.permission` and `.error` are attention-toned
+  (`c.warning` accent + title); every other kind is neutral (`c.metal`). No orange
+  (reserved for selected/engaged/focus), no green (reserved for observed device truth).
+- **No-flash rule (Brief §5/§10).** ERROR is a fully static labelled hold; LOADING is a
+  single slow L→R SWEEP (`HaloSweepTrack`, matching the ring's `discovering` head),
+  static under Reduce Motion; BUSY is a determinate numeric track (`HaloThinTrack`). No
+  `.repeatForever` opacity anywhere. `HaloStateKind.usesContinuousAnimation(progress:
+  reduceMotion:)` is a PURE function so `HaloStatePlateTests` asserts, by construction,
+  that error/empty/etc. never animate and BUSY-with-% is static.
+- **Migration, not addition.** Capture TAKES, Backups SNAPSHOTS + PENDING RECOVERY, Edit
+  LIBRARY, and a new per-group PADS empty all swapped their bare captions for plates.
+  `RailCaption` stays for genuine inline one-liners (guidance, not state regions).
+- **Every state traces to an observed truth** (`takes.isEmpty`, `backups.snapshots.isEmpty`,
+  `journal.recoverable`, `permission.status`, `monitor.state`, `snapshot.outputs.isEmpty`,
+  `lifecyclePhase`) — no plate invents a device state.
+
+### DD-026 — Stage coarse-state layer, driven solely by lifecycle + load phase (P4-states)
+
+The hero model is present in every mode, so the COARSE app state belongs on the stage
+(`EP40StageStateLayer` in `Reality/EP40StageView.swift`), bottom-leading above the mode
+bar, ≤ 320 pt so the model stays dominant (Brief §10). It is a pure function of two
+already-honest signals — `HaloAppModel.lifecyclePhase` and `EP40SceneController.loadPhase`
+— so it can never contradict the status-bar chips or invent a device state, and it holds
+no audio/MIDI handle (DD-013 preserved).
+
+- **New honest `LoadPhase`** (`.loading` / `.loaded` / `.fallback`) splits "still loading"
+  from "fell back to procedural" (both were `isPlaceholder == true`). The stage LOADING
+  plate keys off `.loading` ONLY, so it vanishes the instant the USDZ resolves OR the
+  procedural fallback lands. The `PLACEHOLDER MODEL` status chip keeps keying off
+  `isPlaceholder`, unchanged. Derivation is a pure `LoadPhase.terminal(isPlaceholder:)`
+  (`SceneLoadPhaseTests`), so it needs no RealityKit scene to test.
+- **Silent on the happy path** (`.ready` / `.live`) — the plate never paints when
+  connected/live.
+- **Honesty win:** the disconnected PREVIEW demo now self-labels ("NO EP-40 … SHOWING
+  PREVIEW"), strengthening the PREVIEW / WAIT / LIVE provenance the brief demands
+  (DD-014). The stage ERROR plate offers a RETRY that re-runs `startEP40Monitoring`
+  through `HaloAppModel.retryMIDIObservation()`; on repeated failure it re-reports the
+  same error, never a claimed success.
+- **Permission is NOT on the stage** — it is rail-local (Play MONITOR), because an EP-40
+  can be connected and played on-device without mic auth; a global permission banner
+  would be dishonest about connection.
+
+### DD-027 — Persistence: monitor level, window layout, last tab/group (P4-states)
+
+Three persistence gaps closed, each through the existing `AudioPreferenceStore` seam
+pattern (protocol + `UserDefaults` conformance + injectable in-memory double), so each
+is unit-tested headless. Output UID was already remembered (DD-016) and is untouched.
+
+- **Monitor fader position** (`MonitorPreferenceStore`, restored in `MonitorController.init`,
+  clamped −40…0, default −12 when unset). **Honesty caveat:** persisting the fader
+  POSITION is a daily-use nicety — it never auto-starts monitoring (the route still opens
+  only on an explicit press, Brief §8) and never mutates a running route; a restored value
+  applies to the NEXT start. `MonitorGainPersistenceTests` pins restore/clamp/default and
+  that a stored `0 dB` is a real position, not "unset".
+- **Window size + position** via a `WindowAccessor` `NSViewRepresentable` that sets
+  `setFrameAutosaveName("halo.main")` once — AppKit then round-trips the frame natively
+  (a pure-SwiftUI `@SceneStorage` loses position). `.defaultSize` still seeds the first
+  run; the `minWidth/minHeight` clamp is untouched.
+- **Last LOAD tab + group** (`LoadPreferenceStore`, restored in `LoadSession.init`). Scope
+  note: "project" is a device concept (Phase 0B); today only the UI selection (tab + mock
+  group A–D) is remembered — **no device claim**. `selectedGridIndex` / `selectedSlot`
+  stay ephemeral (transient selection, not "last position"). An `isRestoring` guard keeps
+  the init read-back from re-persisting (a default-valued property fires its `didSet` on
+  any later assignment, including inside the initializer). `LoadPreferenceTests` pins the
+  round-trip + defaults + no-repersist.
+
+Also in P4-states (no new DD): **⌘M** now toggles the monitor (was listed in Brief §7 but
+unbound) via the same hidden-shortcut pattern as ⌘D, routed through the no-op-safe
+`HaloAppModel.toggleMonitor`; **tooltips** (`.help`) added to the physical-style controls
+naming their function + shortcut; **arrow-key selection** added over the 3×4 PADS board
+(SOUNDS/Edit library already had it); and a drawn `haloFocusRim()` gives plain-styled
+custom controls (output picker, profile segments) a visible keyboard-focus ring the
+root's `.focusEffectDisabled()` can't suppress.
+
 ---
 
 _Open decisions awaiting evidence:_

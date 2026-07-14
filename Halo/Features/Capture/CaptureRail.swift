@@ -104,6 +104,8 @@ struct CaptureRail: View {
                     .buttonStyle(MechanicalButtonStyle())
                     .mechanicalEngaged(isRecording)
                     .disabled(!canRecord && !isRecording)
+                    .focusable(canRecord || isRecording)
+                    .help(isRecording ? "Stop recording — ⌘R" : "Record raw input — ⌘R")
                 RailCaption(captureCaption)
 
                 Rectangle().fill(c.ink.opacity(0.12)).frame(height: HaloMetrics.hairline)
@@ -128,7 +130,8 @@ struct CaptureRail: View {
         HaloPanel("TAKES") {
             VStack(alignment: .leading, spacing: HaloMetrics.s2) {
                 if model.takes.takes.isEmpty {
-                    RailCaption("NO TAKES YET — RECORD A SESSION TO CAPTURE ONE")
+                    HaloStatePlate(kind: .empty, title: "NO TAKES",
+                                   reason: "RECORD A SESSION TO CAPTURE ONE.")
                 } else {
                     VStack(spacing: HaloMetrics.s1) {
                         ForEach(model.takes.takes) { take in
@@ -149,6 +152,8 @@ struct CaptureRail: View {
                 RailDataRow("FOLDER", "~/…/HALO/RECORDINGS")
                 Button("REVEAL FOLDER") { model.takes.revealFolder() }
                     .buttonStyle(MechanicalButtonStyle())
+                    .focusable()
+                    .help("Reveal the recordings folder in Finder")
             }
         }
     }

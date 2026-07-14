@@ -66,6 +66,15 @@ struct HaloRootView: View {
                 .opacity(0)
                 .accessibilityHidden(true)
         }
+        // ⌘M toggles the monitor route (Brief §7 lists ⌘M; it was previously
+        // unbound). Same hidden-shortcut pattern as ⌘D. `toggleMonitor` is a no-op
+        // when neither running nor startable, so the chord never fakes a route.
+        .background {
+            Button("", action: { model.toggleMonitor() })
+                .keyboardShortcut("m", modifiers: .command)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
         .onKeyPress(.escape) {
             model.transients.handleEscape() ? .handled : .ignored
         }

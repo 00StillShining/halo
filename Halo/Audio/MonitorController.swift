@@ -25,9 +25,19 @@ final class MonitorController {
     private(set) var state: State = .idle
     private(set) var levels: StereoLevels = .silence
 
-    /// Monitor gain in dBFS. Default is the safe −12 dB monitoring level.
+    /// Monitor gain in dBFS. Default is the safe −12 dB monitoring level, restored
+    /// from the persisted fader position on launch (P4-states, DD-027). Clamped to
+    /// the fader's −40…0 range. HONESTY CAVEAT: persisting the fader POSITION is a
+    /// daily-use nicety — it never auto-starts monitoring (the route still only opens
+    /// on an explicit press, Brief §8) and never mutates a running route; a restored
+    /// value applies to the NEXT start, matching current semantics.
     var gainDB: Double = MonitorGain.defaultDB {
-        didSet { engine.setGainDB(gainDB) }
+        didSet {
+            let clamped = min(max(gainDB, -40), 0)
+            guard clamped == gainDB else { gainDB = clamped; return }   // re-clamp, re-enters
+            engine.setGainDB(gainDB)
+            gainStore.setMonitorGainDB(gainDB)
+        }
     }
 
     /// IO buffer profile. Applied on the next `start` (changing it live would glitch
@@ -44,6 +54,7 @@ final class MonitorController {
     /// Shared RAW-input recorder tap (P2-recorder). Passed into every route config
     /// so the recorder can tap the live input; nil when no recorder is attached.
     private let captureTap: CaptureTap?
+    private let gainStore: MonitorPreferenceStore
     private var meterTask: Task<Void, Never>?
 
     /// Meter poll rate (Brief §8: 30–60 Hz). 50 Hz is comfortably inside the band.
@@ -51,10 +62,18 @@ final class MonitorController {
 
     init(engine: MonitorEngine = EP40AudioRouter(),
          levelBridge: AudioLevelBridge = AudioLevelBridge(),
-         captureTap: CaptureTap? = nil) {
+         captureTap: CaptureTap? = nil,
+         gainStore: MonitorPreferenceStore = UserDefaults.standard) {
         self.engine = engine
         self.levelBridge = levelBridge
         self.captureTap = captureTap
+        self.gainStore = gainStore
+        // Restore the remembered fader position (clamped), or the −12 dB default when
+        // unset. Assigning in `init` does NOT fire `didSet`, so this neither persists
+        // a no-op write nor touches the (idle) engine — the value applies on `start`.
+        if let stored = gainStore.monitorGainDB() {
+            gainDB = min(max(stored, -40), 0)
+        }
     }
 
     var isRunning: Bool { state.isRunning }
@@ -131,6 +150,27 @@ final class MonitorController {
     private func stopMeterPoll() {
         meterTask?.cancel()
         meterTask = nil
+    }
+}
+
+/// Persistence seam for the remembered monitor fader position (P4-states, DD-027).
+/// A protocol so unit tests use an in-memory double instead of shared `UserDefaults`,
+/// mirroring the `AudioPreferenceStore` pattern. `nil` means "never set" → default.
+protocol MonitorPreferenceStore: AnyObject {
+    func monitorGainDB() -> Double?
+    func setMonitorGainDB(_ db: Double)
+}
+
+extension UserDefaults: MonitorPreferenceStore {
+    private static let monitorGainKey = "halo.audio.monitorGainDB"
+
+    func monitorGainDB() -> Double? {
+        // Distinguish an unset key from a stored 0 dB (a valid fader position).
+        object(forKey: Self.monitorGainKey) == nil ? nil : double(forKey: Self.monitorGainKey)
+    }
+
+    func setMonitorGainDB(_ db: Double) {
+        set(db, forKey: Self.monitorGainKey)
     }
 }
 

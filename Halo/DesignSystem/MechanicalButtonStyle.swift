@@ -23,6 +23,35 @@ extension View {
     func mechanicalEngaged(_ on: Bool)  -> some View { environment(\.mechanicalEngaged, on) }
 }
 
+// MARK: - Drawn keyboard-focus rim for plain-styled custom controls
+
+/// Draws the same 1 px orange focus rim `MechanicalButtonStyle` uses, for `.plain`
+/// custom controls (device picker rows, profile segments) that can't inherit it.
+/// The root's `.focusEffectDisabled()` only suppresses the SYSTEM ring — this drawn
+/// rim is unaffected, so keyboard focus stays visible (Brief §7/§10, P4-states).
+private struct HaloFocusRim: ViewModifier {
+    @Environment(\.halo) private var c
+    @Environment(\.isFocused) private var isFocused
+    var radius: CGFloat = HaloMetrics.radiusSmall
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if isFocused {
+                RoundedRectangle(cornerRadius: radius + 2)
+                    .stroke(c.orange, lineWidth: HaloMechanics.rimWidth)
+                    .padding(-2)
+            }
+        }
+    }
+}
+
+extension View {
+    /// Draw the orange keyboard-focus rim when this focusable view is focused.
+    func haloFocusRim(radius: CGFloat = HaloMetrics.radiusSmall) -> some View {
+        modifier(HaloFocusRim(radius: radius))
+    }
+}
+
 // MARK: - Mechanical button style (Brief §6)
 
 /// A keycap, not a card. Square-ish (radiusSmall), a visible extruded side

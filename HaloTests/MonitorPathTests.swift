@@ -88,7 +88,7 @@ final class MonitorPathTests: XCTestCase {
     @MainActor
     func testControllerStartsRunningWithMockEngine() {
         let engine = MockMonitorEngine()
-        let controller = MonitorController(engine: engine)
+        let controller = MonitorController(engine: engine, gainStore: MemoryGainStore())
         XCTAssertFalse(controller.isRunning)
 
         controller.start(inputUID: "EP40-IN", outputUID: "SPK")
@@ -106,7 +106,7 @@ final class MonitorPathTests: XCTestCase {
     @MainActor
     func testControllerMissingInputFailsHonestly() {
         let engine = MockMonitorEngine()
-        let controller = MonitorController(engine: engine)
+        let controller = MonitorController(engine: engine, gainStore: MemoryGainStore())
         controller.start(inputUID: nil, outputUID: "SPK")
         XCTAssertEqual(controller.state, .failed(.noInputDevice))
         XCTAssertEqual(engine.startCount, 0, "no engine start attempted without an input")
@@ -117,7 +117,7 @@ final class MonitorPathTests: XCTestCase {
     func testControllerSurfacesEngineFailure() {
         let engine = MockMonitorEngine()
         engine.startError = .couldNotStart(-10875)
-        let controller = MonitorController(engine: engine)
+        let controller = MonitorController(engine: engine, gainStore: MemoryGainStore())
         controller.start(inputUID: "EP40-IN", outputUID: "SPK")
         XCTAssertEqual(controller.state, .failed(.couldNotStart(-10875)))
         XCTAssertFalse(controller.isRunning)
@@ -126,10 +126,19 @@ final class MonitorPathTests: XCTestCase {
     @MainActor
     func testControllerGainForwardsToEngine() {
         let engine = MockMonitorEngine()
-        let controller = MonitorController(engine: engine)
+        let controller = MonitorController(engine: engine, gainStore: MemoryGainStore())
         controller.gainDB = -3
         XCTAssertEqual(engine.lastGainDB, -3)
     }
+}
+
+/// In-memory monitor-gain preference double so these tests never read or write the
+/// shared `UserDefaults.standard` (which would pollute sibling tests via the
+/// persisted fader position, P4-states DD-027).
+private final class MemoryGainStore: MonitorPreferenceStore {
+    var stored: Double?
+    func monitorGainDB() -> Double? { stored }
+    func setMonitorGainDB(_ db: Double) { stored = db }
 }
 
 /// In-memory `MonitorEngine` double so the controller's honesty/state machine is

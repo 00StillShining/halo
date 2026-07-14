@@ -10,8 +10,17 @@ struct PadsBoard: View {
     @Environment(\.halo) private var c
     @Bindable var session: LoadSession
 
+    @FocusState private var boardFocused: Bool
+
     private var library: MockDeviceLibrary { session.library }
     private var groupLabel: String { PadGrid.groupLetter(session.selectedGroup) }
+
+    /// True when NO pad in the current group has an assigned slot (P4-states empty).
+    private var groupIsEmpty: Bool {
+        (0..<12).allSatisfy {
+            library.project.assignment(group: session.selectedGroup, gridIndex: $0).slot == nil
+        }
+    }
 
     var body: some View {
         VStack(spacing: HaloMetrics.s2) {
@@ -25,7 +34,12 @@ struct PadsBoard: View {
             groupRow
 
             HaloPanel("PADS — GROUP \(groupLabel)") {
-                board
+                if groupIsEmpty {
+                    HaloStatePlate(kind: .empty, title: "GROUP \(groupLabel) EMPTY",
+                                   reason: "DRAG A SAMPLE ONTO A PAD.")
+                } else {
+                    board
+                }
             }
 
             HaloPanel("PAD DETAIL") {
@@ -46,6 +60,7 @@ struct PadsBoard: View {
                 .buttonStyle(MechanicalButtonStyle())
                 .mechanicalSelected(session.selectedGroup == g)
                 .focusable()
+                .help("Select group \(PadGrid.groupLetter(g))")
             }
             Spacer(minLength: 0)
         }
@@ -63,6 +78,31 @@ struct PadsBoard: View {
                 cell(gridIndex)
             }
         }
+        // Arrow-key selection over the 3×4 grid (Brief §7). Left/right step by one,
+        // up/down by a row, clamped to the grid — no wraparound past the edges.
+        .focusable()
+        .focused($boardFocused)
+        .focusEffectDisabled()
+        .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+            moveSelection(press.key)
+        }
+    }
+
+    /// Move the 3×4 selection by one cell in `key`'s direction, clamped. Selecting
+    /// the first cell when nothing is selected yet.
+    private func moveSelection(_ key: KeyEquivalent) -> KeyPress.Result {
+        let cols = 3, rows = 4
+        let current = session.selectedGridIndex ?? 0
+        var row = current / cols, col = current % cols
+        switch key {
+        case .leftArrow:  col = max(0, col - 1)
+        case .rightArrow: col = min(cols - 1, col + 1)
+        case .upArrow:    row = max(0, row - 1)
+        case .downArrow:  row = min(rows - 1, row + 1)
+        default: return .ignored
+        }
+        session.selectedGridIndex = row * cols + col
+        return .handled
     }
 
     private func cell(_ gridIndex: Int) -> some View {

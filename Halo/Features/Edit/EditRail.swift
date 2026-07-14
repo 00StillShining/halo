@@ -64,9 +64,15 @@ struct EditRail: View {
                     Button("ADD SAMPLE") { presentImportPanel() }
                         .buttonStyle(MechanicalButtonStyle())
                         .focusable()
+                        .help("Add a local audio file to the library")
                 }
                 if session.library.isEmpty {
-                    RailCaption("NO SAMPLES YET — ADD A FILE, OR DRAG ONE HERE")
+                    HaloStatePlate(kind: .empty, title: "NO SAMPLES",
+                                   reason: "ADD A FILE, OR DRAG ONE HERE.",
+                                   actionLabel: "ADD SAMPLE",
+                                   actionHelp: "Add a local audio file to the library") {
+                        presentImportPanel()
+                    }
                 } else {
                     libraryRows
                 }
@@ -167,6 +173,7 @@ struct EditRail: View {
                 .buttonStyle(MechanicalButtonStyle())
                 .mechanicalSelected(session.selectedGroup == g)
                 .focusable()
+                .help("Select group \(PadGrid.groupLetter(g))")
             }
             Spacer(minLength: 0)
         }
@@ -278,6 +285,7 @@ struct EditRail: View {
                     .buttonStyle(MechanicalButtonStyle())
                     .mechanicalEngaged(audition.isPlaying)
                     .focusable()
+                    .help(audition.isPlaying ? "Stop audition — Space" : "Audition locally — Space")
                 Spacer(minLength: 0)
             }
             RailCaption("SPACE TO AUDITION — LOCAL PLAYBACK OF THE PREPARED SAMPLE")
@@ -404,6 +412,7 @@ struct EditRail: View {
                 Button("SEND CHANGES") {}
                     .buttonStyle(MechanicalButtonStyle())
                     .disabled(true)
+                    .help("Send edits to the device — needs a verified protocol (Phase 0B)")
                 RailCaption("DEVICE TRANSFER — NEEDS VERIFIED PROTOCOL (PHASE 0B)")
                 if let intent = sendIntentLine { RailCaption(intent) }
             }

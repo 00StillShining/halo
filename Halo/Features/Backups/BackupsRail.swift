@@ -50,7 +50,8 @@ struct BackupsRail: View {
         HaloPanel("SNAPSHOTS") {
             VStack(alignment: .leading, spacing: HaloMetrics.s2) {
                 if backups.snapshots.isEmpty {
-                    RailCaption("NO SNAPSHOTS")
+                    HaloStatePlate(kind: .empty, title: "NO SNAPSHOTS",
+                                   reason: "SNAPSHOTS NEED A CONNECTED EP-40 (PHASE 0B).")
                 } else {
                     VStack(spacing: HaloMetrics.s1) {
                         ForEach(backups.snapshots) { manifest in
@@ -69,6 +70,7 @@ struct BackupsRail: View {
                 Button("NEW SNAPSHOT") { }
                     .buttonStyle(MechanicalButtonStyle())
                     .disabled(true)
+                    .help("Snapshot the device — needs a connected EP-40 (Phase 0B)")
                 RailCaption("NEW SNAPSHOT NEEDS A CONNECTED EP-40")
 
                 // The three snapshot reasons (Brief §7), as inert legends.
@@ -91,14 +93,18 @@ struct BackupsRail: View {
         HaloPanel("PENDING RECOVERY") {
             VStack(alignment: .leading, spacing: HaloMetrics.s2) {
                 if journal.recoverable.isEmpty {
-                    RailCaption("NO PENDING OPERATIONS — ALL WRITES COMPLETED CLEANLY")
+                    HaloStatePlate(kind: .empty, title: "NO PENDING WRITES",
+                                   reason: "ALL WRITES COMPLETED CLEANLY.")
                 } else {
+                    // Attention tone (warning accent), stable — no flashing. The
+                    // recovery COPY is safe, so this is recoverable, not fatal.
+                    HaloStatePlate(kind: .error, title: "WRITE DID NOT FINISH",
+                                   reason: "YOUR LOCAL RECOVERY COPY IS SAFE.")
                     VStack(spacing: HaloMetrics.s1) {
                         ForEach(journal.recoverable) { entry in
                             RailDataRow(entry.kind.label, Self.shortTime(entry.startedAt))
                         }
                     }
-                    RailCaption("A WRITE DID NOT FINISH — YOUR LOCAL RECOVERY COPY IS SAFE")
                 }
             }
         }
@@ -112,6 +118,8 @@ struct BackupsRail: View {
                 RailDataRow("FOLDER", HaloFileStore.Folder.backups.displayPath)
                 Button("REVEAL FOLDER") { backups.revealFolder() }
                     .buttonStyle(MechanicalButtonStyle())
+                    .focusable()
+                    .help("Reveal the backups folder in Finder")
                 RailCaption("SNAPSHOTS ARE PLAIN FILES — OPENABLE WITHOUT HALO")
             }
         }
@@ -180,8 +188,12 @@ private struct SnapshotRow: View {
             HStack(spacing: HaloMetrics.s1) {
                 Button("REVEAL", action: reveal)
                     .buttonStyle(MechanicalButtonStyle())
+                    .focusable()
+                    .help("Reveal this snapshot in Finder")
                 Button("RESTORE", action: restore)
                     .buttonStyle(MechanicalButtonStyle())
+                    .focusable()
+                    .help("Restore this snapshot to the EP-40 (confirms first)")
             }
         }
         .padding(HaloMetrics.s1)

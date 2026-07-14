@@ -137,6 +137,56 @@ final class HaloAppModel {
         refreshLifecycle()
     }
 
+    // MARK: - Monitor convenience (⌘M + rail share one honest source, P4-states)
+
+    /// The EP-40 audio INPUT UID resolved from the live snapshot (documented name
+    /// inference — see docs/device-capabilities.md). Nil when no match is present.
+    var ep40AudioInputUID: String? { audioDevices.snapshot.ep40AudioInput?.uid }
+
+    /// The resolved monitor OUTPUT UID (the user's pick, or an honest fallback).
+    var resolvedOutputUID: String? {
+        audioOutput.resolution(in: audioDevices.snapshot).device?.uid
+    }
+
+    /// Whether a monitor route could honestly start right now (both an EP-40 input
+    /// and an output device are present). Drives the ⌘M shortcut and the rail button.
+    var canMonitor: Bool { ep40AudioInputUID != nil && resolvedOutputUID != nil }
+
+    /// ⌘M / MONITOR toggle (Brief §7). One entry point so the ring's MON truth never
+    /// lags the route. A no-op when neither running nor startable — never fakes a
+    /// route. Starts default −12 dB on an explicit press only (Brief §8).
+    func toggleMonitor() {
+        if monitor.isRunning {
+            stopMonitor()
+        } else if canMonitor {
+            startMonitor(inputUID: ep40AudioInputUID, outputUID: resolvedOutputUID)
+        }
+    }
+
+    /// Retry the CoreMIDI observation after an observed client-setup failure
+    /// (P4-states stage ERROR plate). Tears down the failed observer so
+    /// `startEP40Monitoring` (which guards on `nil`) re-runs, and clears the error
+    /// label. Honest: on repeated failure it simply re-reports the same error — it
+    /// never claims success it did not observe.
+    func retryMIDIObservation() {
+        midiObserver = nil
+        midiDeliveryTask?.cancel()
+        midiDeliveryTask = nil
+        ringErrorLabel = nil
+        refreshRingState()
+        refreshLifecycle()
+        startEP40Monitoring()
+    }
+
+    /// Open macOS Privacy › Microphone settings (P4-states PERMISSION plate action).
+    /// The EP-40 is captured as a USB audio INPUT, so its capture is gated by the
+    /// same mic TCC control. Halo never toggles the setting itself.
+    func openMicSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     /// SPACE / AUDITION (Brief §7). Toggles LOCAL playback of the prepared+treated
     /// selected sample to the system default output. Honest: an empty selection or a
     /// failed engine start is a no-op. Not the EP-40 route (DD-022) — no device claim.

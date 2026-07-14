@@ -805,6 +805,46 @@ stability, store write→reload + newest-first + drop-unreadable, restorer hones
 journal begin/commit/rollback/resolve + crash-reload recovery, journal-document
 versioning, and the five-folder layout.
 
+### DD-024 — Diagnostics drawer + two-axis capability model (P4-diagnostics)
+
+A global, read-only **Diagnostics drawer** (⌘D, or click the leading status-chip
+cluster) surfaces three honest things: the app's **live status** now, the seeded
+**capability matrix**, and an **empty-by-construction protocol-trace scaffold**. Plus
+an **EXPORT LOG** action writing a human-readable plaintext snapshot to the canonical
+`Diagnostics/` folder and revealing it in Finder (Brief §7/§8; a local, non-destructive
+write into halo's own transparent folder — no safety gate).
+
+- **Two orthogonal axes = the honesty.** `CapabilityStatus` (OBSERVED / DOCUMENTED /
+  NOT-OBSERVED / UNKNOWN) is device truth about the PHYSICAL EP-40; `CapabilityReadiness`
+  (BUILT / PARTIAL / ABSENT) is how far halo's OWN Mac-side mechanism is built. A
+  mechanism can be BUILT + unit-tested on this Mac while the device fact is UNKNOWN.
+- **Green (`riddimGreen`) is reserved for observed device truth.** The EP-40 has never
+  connected in a halo session, so **no catalogue row is `.observed`** and nothing in
+  the matrix is green. A BUILT readiness chip is always **muted** (inkSoft outline,
+  no fill) — a working mechanism is not a device confirmation (Brief §1/§3/§4). The
+  load-bearing guard is `DeviceCapabilitiesTests.testNoCapabilityIsObserved`, which may
+  only change alongside a real with-device session that updates BOTH the doc and the
+  catalogue together.
+- **HOST audio vs DEVICE, verbally separated.** The `STATUS · HOST AUDIO` panel carries
+  the subtitle *"this Mac, not the EP-40"* so "this Mac has an output device" is never
+  misread as "the EP-40 is connected" (the doc's standing warning).
+- **Feature gate.** `DeviceCapabilities.isConfirmed(_:)` is the honest gate the brief
+  asks for — a device feature is enabled only when its backing capability is observed
+  (today: none). Existing device features (Edit `SEND CHANGES`, the transfer ring)
+  already disable themselves honestly; that logic was **not** refactored.
+- **Protocol trace = one seam, unused.** `ProtocolTrace.record(_:)` is the sole append
+  path; a future `EP40SysExTransport` (Phase 0B) is its only caller. Until then the
+  trace is empty and the drawer says so — halo never fabricates a frame.
+- **DD-013 preserved.** The drawer registers as a transient (Escape closes it via the
+  existing stack) but holds **no audio handle** — Escape can never stop audio. The
+  `isDiagnosticsOpen` flag touches no audio/MIDI/display path. `DiagnosticsReport` is a
+  pure `String` builder taking plain snapshot values (not the `@MainActor` model), so
+  the export is unit-tested headless. Tested (`DeviceCapabilitiesTests`, 8 cases): no
+  row observed, feature gate shut for every id (+ unknown id), only-observed-unlocks,
+  unique ids, every domain non-empty, report renders each domain header + `(none` for
+  the empty trace with **no standalone OBSERVED token**, live-block values present, and
+  the trace scaffold's empty→record→clear seam.
+
 ---
 
 _Open decisions awaiting evidence:_

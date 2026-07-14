@@ -74,5 +74,22 @@ Status legend:
 
 ---
 
+## Diagnostics (DD-024)
+
+The in-app **Diagnostics drawer** (⌘D) renders a **capability matrix** seeded from
+`DeviceCapabilities.catalogue`, which **mirrors this file** — this doc is canonical;
+the code is its mirror. Each row carries two orthogonal axes: `CapabilityStatus`
+(OBSERVED / DOCUMENTED / NOT-OBSERVED / UNKNOWN — device truth about the physical
+EP-40) and `CapabilityReadiness` (BUILT / PARTIAL / ABSENT — how far halo's own
+Mac-side mechanism is built). A mechanism can be BUILT + unit-tested on this Mac
+while the device fact is still UNKNOWN; readiness is never shown green.
+
+**Honesty test:** `DeviceCapabilitiesTests.testNoCapabilityIsObserved` pins that **no
+row is `OBSERVED`** — the EP-40 has never connected in a halo session. A row may only
+flip to `OBSERVED` when a real with-device session updates **both** this file and the
+catalogue together; doing so in code alone is a Brief §1/§4 honesty failure. The
+feature gate `DeviceCapabilities.isConfirmed(_:)` unlocks a device-touching feature
+only for an observed row (today: none).
+
 _Note: sample-library slots and project pad assignments are **separate concepts**
 and must never be conflated in code or labels (Brief §3)._

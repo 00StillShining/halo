@@ -16,6 +16,7 @@ struct HaloRootView: View {
         return ZStack {
             mainLayout
             preparationOverlay
+            diagnosticsOverlay
         }
         .haloPalette(model.palette)
     }
@@ -34,7 +35,9 @@ struct HaloRootView: View {
                 ringState: model.ringState,
                 lifecyclePhase: model.lifecyclePhase,
                 palette: model.palette,
-                onSelectPalette: { model.selectPalette($0) }
+                isDiagnosticsOpen: model.isDiagnosticsOpen,
+                onSelectPalette: { model.selectPalette($0) },
+                onOpenDiagnostics: { toggleDiagnostics() }
             )
             GeometryReader { geo in
                 HStack(spacing: 0) {
@@ -54,6 +57,15 @@ struct HaloRootView: View {
         .haloPalette(model.palette)
         .focusEffectDisabled()
         .background(HaloColorTokens.tokens(for: model.palette).canvas)
+        // ⌘D toggles the Diagnostics drawer (DD-024). A hidden keyboard-shortcut
+        // button is the sanctioned way to bind a modifier chord app-wide; it never
+        // takes focus or paints.
+        .background {
+            Button("", action: toggleDiagnostics)
+                .keyboardShortcut("d", modifiers: .command)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
         .onKeyPress(.escape) {
             model.transients.handleEscape() ? .handled : .ignored
         }
@@ -132,6 +144,31 @@ struct HaloRootView: View {
                 .ignoresSafeArea()
                 .onTapGesture { model.load.cancelPreparation() }
             PreparationSheet(session: model.load)
+        }
+    }
+
+    /// The Diagnostics drawer (DD-024), presented as a right-anchored transient over
+    /// everything. A dimmed scrim cancels on tap; Escape cancels via the transient
+    /// stack inside `DiagnosticsDrawer`. It holds no audio handle (DD-013).
+    @ViewBuilder
+    private var diagnosticsOverlay: some View {
+        if model.isDiagnosticsOpen {
+            let c = HaloColorTokens.tokens(for: model.palette)
+            c.ink.opacity(0.25)
+                .ignoresSafeArea()
+                .onTapGesture { toggleDiagnostics() }
+            DiagnosticsDrawer()
+                .transition(reduceMotion ? .opacity : .move(edge: .trailing))
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    /// Toggle the drawer, animating the slide unless Reduce Motion is on. Wrapping
+    /// the state change here keeps the single animation policy in one place.
+    private func toggleDiagnostics() {
+        withAnimation(reduceMotion ? nil
+                      : .easeInOut(duration: HaloMechanics.modeChangeDuration)) {
+            model.toggleDiagnostics()
         }
     }
 

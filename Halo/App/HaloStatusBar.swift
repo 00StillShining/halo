@@ -15,7 +15,11 @@ struct HaloStatusBar: View {
     var ringState: HaloRingState
     var lifecyclePhase: HaloLifecyclePhase
     var palette: HaloPalette
+    var isDiagnosticsOpen: Bool
     var onSelectPalette: (HaloPalette) -> Void
+    var onOpenDiagnostics: () -> Void
+
+    @State private var clusterHovering = false
 
     var body: some View {
         HStack(alignment: .center, spacing: HaloMetrics.s3) {
@@ -24,13 +28,19 @@ struct HaloStatusBar: View {
                 .tracking(HaloType.Track.wordmark)
                 .foregroundStyle(c.ink)
 
-            statusChip(label: "EP-40", value: deviceStatus, accent: false)
-                .help(midiEndpointName ?? "No matching EP-40 MIDI source")
-            statusChip(label: "FW", value: firmwareStatus, accent: false)
-            statusChip(label: "USB", value: usbStatus, accent: false)
-            statusChip(label: "STATE", value: lifecyclePhase.word, tint: lifecycleChipTint)
-            statusChip(label: "DISPLAY", value: displayStatus, accent: isDisplayLive)
-            statusChip(label: "HALO", value: ringState.statusWord, tint: haloChipTint)
+            // The leading status-chip cluster IS the Diagnostics affordance (Brief §7,
+            // DD-024): these chips are the drawer's teaser, so clicking them expands
+            // the evidence. No new chip — the 1180 min-width strip is full. A subtle
+            // orange hairline scent on hover/open; the OUTPUT/MONITOR/REC neighbours
+            // are untouched (scope-element rule).
+            Button(action: onOpenDiagnostics) { statusCluster }
+                .buttonStyle(.plain)
+                .onHover { clusterHovering = $0 }
+                .background(alignment: .bottom) {
+                    Rectangle().fill(c.orange).frame(height: HaloMetrics.hairline)
+                        .opacity(clusterHovering || isDiagnosticsOpen ? 0.9 : 0)
+                }
+                .help("Diagnostics — ⌘D")
 
             Spacer()
 
@@ -59,6 +69,21 @@ struct HaloStatusBar: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(c.ink.opacity(0.18)).frame(height: HaloMetrics.hairline)
         }
+    }
+
+    // The leading status-chip cluster — the Diagnostics teaser (DD-024). Kept as one
+    // grouped affordance so the whole cluster reads as a single button.
+    private var statusCluster: some View {
+        HStack(alignment: .center, spacing: HaloMetrics.s3) {
+            statusChip(label: "EP-40", value: deviceStatus, accent: false)
+                .help(midiEndpointName ?? "No matching EP-40 MIDI source")
+            statusChip(label: "FW", value: firmwareStatus, accent: false)
+            statusChip(label: "USB", value: usbStatus, accent: false)
+            statusChip(label: "STATE", value: lifecyclePhase.word, tint: lifecycleChipTint)
+            statusChip(label: "DISPLAY", value: displayStatus, accent: isDisplayLive)
+            statusChip(label: "HALO", value: ringState.statusWord, tint: haloChipTint)
+        }
+        .contentShape(Rectangle())
     }
 
     // Palette gate switcher (Brief §5): A / B mechanical keycaps. The owner picks

@@ -70,6 +70,11 @@ final class HaloAppModel {
     /// as monitoring. Injectable so the gating is unit-tested with a mock probe.
     let permission: AudioPermission
 
+    /// Protocol-trace scaffold (P4-diagnostics, DD-024). Empty by construction —
+    /// the EP-40 proprietary protocol is Phase 0B (device-gated), so there is no
+    /// producer yet. Never fabricates a frame (Brief §1/§4).
+    let protocolTrace = ProtocolTrace()
+
     init(permission: AudioPermission = AudioPermission()) {
         // Create the canonical on-disk layout up front (Brief §8) so every
         // subsystem has its folder before it writes.
@@ -167,6 +172,141 @@ final class HaloAppModel {
     var isPlayRailCollapsed = true               // Play: the model is the hero by default
     let rackAvailable = false                    // flips at Phase 5a
     let transients = TransientCoordinator()
+
+    /// Diagnostics drawer visibility (P4-diagnostics, DD-024). UI-only overlay flag,
+    /// same honesty class as `mode` — it touches no audio / MIDI / display path and
+    /// holds no audio handle (DD-013). The drawer only reads existing published state.
+    var isDiagnosticsOpen = false
+    func toggleDiagnostics() { isDiagnosticsOpen.toggle() }
+
+    // MARK: - Diagnostics readouts (P4-diagnostics, DD-024)
+    // Shared honest string builders so the drawer view and the exported log agree
+    // by construction. Every value traces to a real read — nothing is invented.
+
+    /// CoreMIDI client running (observer alive). Read-only accessor for the drawer.
+    var isMIDIClientRunning: Bool { midiObserver != nil }
+    /// The only real ring/MIDI failure reachable today (CoreMIDI client setup).
+    var midiErrorLabel: String? { ringErrorLabel }
+
+    /// MODEL row — placeholder vs the loaded USDZ.
+    var diagModelValue: String { scene.isPlaceholder ? "PLACEHOLDER" : "LOADED" }
+
+    /// OUTPUT row — resolved monitor-output device + how it was resolved (honest:
+    /// distinguishes the user's own pick from a fallback), or NONE.
+    var diagOutputValue: String {
+        let resolution = audioOutput.resolution(in: audioDevices.snapshot)
+        guard let device = resolution.device else { return "NONE" }
+        return "\(device.name) · \(resolution.isExactPreference ? "PREFERRED" : "DEFAULT")"
+    }
+
+    /// RATE row — the resolved output device's nominal rate (the running route's
+    /// rate), grouped for legibility, or an em-dash when no device resolves.
+    var diagRateValue: String {
+        guard let rate = activeRouteSampleRate else { return "—" }
+        return "\(Self.groupedHz(rate)) Hz"
+    }
+
+    /// MONITOR row — RUNNING with the current gain, IDLE, or the honest failure reason.
+    var diagMonitorValue: String {
+        switch monitor.state {
+        case .running:            return "RUNNING \(Int(gainDBRounded)) dB"
+        case .idle:               return "IDLE"
+        case let .failed(reason): return "FAILED · \(Self.monitorReason(reason))"
+        }
+    }
+
+    private var gainDBRounded: Double { monitor.gainDB.rounded() }
+
+    /// PROFILE row — IO buffer profile name + frame size.
+    var diagProfileValue: String { "\(monitor.profile.label) · \(monitor.profile.frames) FR" }
+
+    /// FEEDBACK row — whether the active route would feed the EP-40 into itself.
+    var diagFeedbackValue: String { monitor.hasFeedbackRisk ? "RISK" : "OK" }
+
+    /// DEVICES row — counts of real input/output devices in the current snapshot.
+    var diagDevicesValue: String {
+        let snapshot = audioDevices.snapshot
+        return "\(snapshot.inputs.count) in · \(snapshot.outputs.count) out"
+    }
+
+    private static func groupedHz(_ rate: Double) -> String {
+        let n = Int(rate.rounded())
+        let digits = Array(String(n))
+        var grouped = ""
+        for (offset, ch) in digits.enumerated() {
+            if offset > 0, (digits.count - offset).isMultiple(of: 3) { grouped += " " }
+            grouped.append(ch)
+        }
+        return grouped
+    }
+
+    private static func monitorReason(_ error: MonitorRouteError) -> String {
+        switch error {
+        case .noInputDevice:            return "NO INPUT"
+        case .noOutputDevice:           return "NO OUTPUT"
+        case .micPermission:            return "MIC DENIED"
+        case .componentUnavailable:     return "NO HAL UNIT"
+        case let .unitCreation(status): return "HAL \(status)"
+        case let .configuration(status): return "CFG \(status)"
+        case let .couldNotStart(status): return "START \(status)"
+        }
+    }
+
+    /// Assemble the live status blocks as plain `(label, value)` pairs for the
+    /// exported log. The drawer view renders the same values with tints; this is the
+    /// single source of truth for the strings so the file and the screen never drift.
+    func diagnosticsLiveBlocks() -> [(String, [(String, String)])] {
+        [
+            ("STATUS · DEVICE", [
+                ("ENDPOINT", deviceStatus),
+                ("MIDI SRC", midiEndpointName ?? "—"),
+                ("USB", usbStatus),
+                ("STATE", lifecyclePhase.word),
+                ("HALO RING", ringState.statusWord),
+                ("MODEL", diagModelValue),
+            ]),
+            ("STATUS · HOST AUDIO (this Mac, not the EP-40)", [
+                ("MIC AUTH", permission.status.word),
+                ("OUTPUT", diagOutputValue),
+                ("RATE", diagRateValue),
+                ("MONITOR", diagMonitorValue),
+                ("PROFILE", diagProfileValue),
+                ("FEEDBACK", diagFeedbackValue),
+                ("DEVICES", diagDevicesValue),
+            ]),
+            ("STATUS · MIDI", [
+                ("CLIENT", isMIDIClientRunning ? "RUNNING" : "DOWN"),
+                ("ERROR", midiErrorLabel ?? "—"),
+            ]),
+        ]
+    }
+
+    /// EXPORT LOG (Brief §7/§8). Write a human-readable plaintext snapshot into the
+    /// canonical `Diagnostics/` folder and reveal it in Finder. A local, non-
+    /// destructive write into halo's own transparent folder — on-brief, no safety
+    /// gate. Honest: the matrix comes straight from `DeviceCapabilities` (no row
+    /// observed) and the empty trace prints as `(none — Phase 0B)`.
+    @discardableResult
+    func exportDiagnostics(now: Date = Date()) -> URL {
+        let text = DiagnosticsReport.text(
+            generatedAt: now,
+            palette: palette.displayName,
+            mode: mode.title,
+            live: diagnosticsLiveBlocks(),
+            catalogue: DeviceCapabilities.catalogue,
+            frames: protocolTrace.frames)
+        let url = HaloFileStore.url(.diagnostics)
+            .appendingPathComponent("halo-diagnostics-\(DiagnosticsReport.iso8601Compact(now)).txt")
+        // Only reveal a file that actually landed — never surface a phantom path.
+        do {
+            try Data(text.utf8).write(to: url)
+            HaloFileStore.reveal(url)
+        } catch {
+            // Local, non-destructive write into halo's own folder; a failure is rare
+            // (permissions / disk). Stay silent rather than fabricate success.
+        }
+        return url
+    }
 
     /// Switch modes. Ignores no-ops and any mode not currently in the mode bar.
     /// Re-frames the hero model (camera move) — it never releases pads or touches

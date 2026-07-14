@@ -18,6 +18,9 @@ struct MonitorRouteConfig: Sendable {
     /// pre-gain/pre-limiter stream here when the recorder has armed it. Nil when no
     /// recorder is attached to this route.
     let captureTap: CaptureTap?
+    /// Optional dub FX rack parameter bridge (P5a-rack). Shared with the UI's
+    /// `RackModel`; the output callback reads it once per block. Nil = no rack.
+    let rackParams: RackParameters?
 }
 
 /// Why a route could not be opened. Surfaced honestly to the UI (Brief §1/§4) — no
@@ -94,7 +97,8 @@ final class EP40AudioRouter: MonitorEngine, @unchecked Sendable {
             maxFrames: max(frames, 512),
             initialGainDB: config.initialGainDB,
             levelBridge: config.levelBridge,
-            captureTap: config.captureTap)
+            captureTap: config.captureTap,
+            rackParams: config.rackParams)
         let ref = Unmanaged.passUnretained(ctx)
         let refcon = ref.toOpaque()
 

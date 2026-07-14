@@ -38,6 +38,8 @@ final class SessionRecorder {
     private(set) var diskFreeBytes: Int64 = 0
     /// Sample rate the current/last take is being written at (for disk-time math).
     private(set) var sampleRate: Double = 48_000
+    /// Whether the current/last take is a PRINT FX (post-rack) capture (Brief §7).
+    private(set) var printFX: Bool = false
 
     var isRecording: Bool { if case .recording = state { return true }; return false }
     var startedAt: Date? { if case let .recording(t) = state { return t }; return nil }
@@ -59,15 +61,22 @@ final class SessionRecorder {
     /// recorder does not guess it (see `HaloAppModel.toggleRecording`). Precondition:
     /// the monitor route is running (the caller gates this); if the file cannot be
     /// opened the recorder fails honestly and records nothing.
-    func start(sampleRate: Double) {
+    ///
+    /// `printFX` (Brief §7, Phase 5a): when true the take records the POST-rack signal
+    /// (the output callback becomes the tap producer) and the file is tagged so a
+    /// print-FX take is never mistaken for a raw one. Default false = raw input.
+    func start(sampleRate: Double, printFX: Bool = false) {
         guard !isRecording else { return }
         self.sampleRate = sampleRate
-        let url = TakesStore.recordingsDir().appendingPathComponent(Self.filename())
+        self.printFX = printFX
+        let url = TakesStore.recordingsDir().appendingPathComponent(Self.filename(printFX: printFX))
         do {
             let writer = try WAVFileWriter(url: url, sampleRate: sampleRate)
             tap.framesWritten.store(0, ordering: .relaxed)
             tap.meter.reset()
             tap.drain()                                  // discard any pre-roll
+            // Route the tap BEFORE arming so exactly one callback produces (SPSC).
+            tap.postFX.store(printFX, ordering: .relaxed)
             tap.armed.store(true, ordering: .relaxed)    // arm the producer
             drain = RecordingDrain(tap: tap, writer: writer)   // spawns the drain thread
             currentURL = url
@@ -79,6 +88,7 @@ final class SessionRecorder {
             startPolling()
         } catch {
             tap.armed.store(false, ordering: .relaxed)
+            tap.postFX.store(false, ordering: .relaxed)
             state = .failed(.fileOpen("\(error)"))
         }
     }
@@ -88,6 +98,7 @@ final class SessionRecorder {
     func stop() {
         guard isRecording, let drain, let url = currentURL else { return }
         tap.armed.store(false, ordering: .relaxed)   // stop the producer first
+        tap.postFX.store(false, ordering: .relaxed)  // reset the tap route to raw
         drain.finish()                               // flush remainder, close, join
         self.drain = nil
         pollTask?.cancel(); pollTask = nil
@@ -131,11 +142,14 @@ final class SessionRecorder {
 
     // MARK: - Helpers
 
-    nonisolated static func filename(date: Date = Date()) -> String {
+    nonisolated static func filename(date: Date = Date(), printFX: Bool = false) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd-HHmm-ss"
-        return "take-\(f.string(from: date)).wav"
+        // PRINT FX takes carry an "-fx" tag so a post-rack capture is never mistaken
+        // for a raw one on disk (Brief §7: "clearly labelled on the take").
+        let tag = printFX ? "-fx" : ""
+        return "take-\(f.string(from: date))\(tag).wav"
     }
 
     nonisolated static func diskFree() -> Int64 {

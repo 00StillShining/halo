@@ -50,6 +50,13 @@ final class HaloAppModel {
     /// Session recorder lifecycle. Records the raw input while a monitor route runs.
     let recorder: SessionRecorder
 
+    /// Dub FX rack parameter bridge (P5a-rack, Brief §5a). The SAME instance is shared
+    /// with the `MonitorController` (so the output callback reads it) and the `rack`
+    /// UI model (so the rail writes it) — identical ownership to `captureTap`.
+    let rackParameters = RackParameters()
+    /// UI-facing dub FX rack state (RACK mode). Writes the atomic bridge above.
+    let rack: RackModel
+
     /// Local backup-snapshot index (Brief §7 Backups). Scans `Backups/` for dated
     /// snapshot folders. Empty until a verified device layer (Phase 0B) can read
     /// samples off the EP-40 — halo never fabricates a snapshot.
@@ -82,8 +89,10 @@ final class HaloAppModel {
         let sceneController = EP40SceneController()
         scene = sceneController
         monitor = MonitorController(levelBridge: sceneController.audioLevelBridge,
-                                    captureTap: captureTap)
+                                    captureTap: captureTap,
+                                    rackParams: rackParameters)
         recorder = SessionRecorder(tap: captureTap, takes: takes)
+        rack = RackModel(parameters: rackParameters)
         self.permission = permission
     }
 
@@ -103,7 +112,7 @@ final class HaloAppModel {
             recorder.stop()
         } else {
             guard monitor.isRunning else { return }
-            recorder.start(sampleRate: activeRouteSampleRate ?? 48_000)
+            recorder.start(sampleRate: activeRouteSampleRate ?? 48_000, printFX: rack.printFX)
         }
         refreshRingState()
     }
@@ -220,7 +229,7 @@ final class HaloAppModel {
 
     private(set) var mode: HaloMode = .play      // Play is the daily default
     var isPlayRailCollapsed = true               // Play: the model is the hero by default
-    let rackAvailable = false                    // flips at Phase 5a
+    let rackAvailable = true                      // RACK ships in Phase 5a (P5a-rack)
     let transients = TransientCoordinator()
 
     /// Diagnostics drawer visibility (P4-diagnostics, DD-024). UI-only overlay flag,
@@ -770,12 +779,22 @@ final class HaloAppModel {
             }
         }
         lastClockSeconds = seconds
+
+        // Feed the observed clock tempo to the dub rack for echo sync (Brief §5a).
+        // `updateClockBPM` no-ops unless the integer BPM changes, so this is cheap
+        // even at 24 PPQN. HONEST: derived only from real clock messages.
+        if let interval = smoothedClockInterval, interval > 0 {
+            let bpm = 60 / (interval * 24)
+            if (30...300).contains(bpm) { rack.updateClockBPM(bpm) }
+        }
     }
 
     private func resetClockTracking() {
         clockCount = 0
         lastClockSeconds = nil
         smoothedClockInterval = nil
+        // No clock observed → the rack falls back to tap tempo (never an invented BPM).
+        rack.updateClockBPM(nil)
     }
 
     private func applyPadMapping(for note: UInt8, to state: inout EP40DisplayState) {

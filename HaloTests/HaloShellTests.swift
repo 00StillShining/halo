@@ -24,12 +24,13 @@ final class HaloShellTests: XCTestCase {
     // MARK: - Mode switching guard
 
     @MainActor
-    func testSelectRackIsIgnoredWhenUnavailable() {
+    func testSelectRackSwitchesNowThatItShips() {
+        // RACK ships in Phase 5a (P5a-rack): it is in the visible bar and selectable.
         let model = HaloAppModel()
         XCTAssertEqual(model.mode, .play)
-        XCTAssertFalse(model.rackAvailable)
+        XCTAssertTrue(model.rackAvailable)
         model.select(.rack)
-        XCTAssertEqual(model.mode, .play)   // rack not in the visible bar → no-op
+        XCTAssertEqual(model.mode, .rack)
     }
 
     @MainActor

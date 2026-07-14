@@ -932,6 +932,49 @@ naming their function + shortcut; **arrow-key selection** added over the 3×4 PA
 custom controls (output picker, profile segments) a visible keyboard-focus ring the
 root's `.focusEffectDisabled()` can't suppress.
 
+### DD-028 — Dub FX rack: custom DSP at the monitor insert, atomic param bridge, PRINT FX (P5a-rack)
+
+Phase 5a (Brief §5a) adds a performable Mac-side dub FX rack on the monitor path. It
+slots into the P2 chain **monitor gain → RACK → −1 dBFS limiter** — the exact insert
+point the P2 route reserved (the old `fxBypassed` atomic is replaced by the rack).
+
+- **Custom DSP, RT-safe** (`Halo/Audio/DSP/DubRack.swift`). Four modules in fixed order,
+  each a preallocated value/class processor with zero allocation, lock, log or object
+  retain in the callback (same contract as `MonitorGain`/`SafetyLimiter`): **TAPE ECHO**
+  (fractional-delay feedback line 40–1200 ms, one-pole loop damping, wow+flutter LFO
+  modulation, `tanh` soft self-oscillation ceiling), **SPRING** (a 4-line **FDN** with a
+  Hadamard mix matrix + per-line damping — the documented default; a convolution IR
+  remains the fallback), **SWEEP** (TPT state-variable filter, one macro knob morphing
+  LP→BP→HP over a 60 Hz–12 kHz log sweep + resonance), **LOW END** (conservative RBJ
+  low-shelf loudness, off by default; a sub-harmonic *synthesiser* was deliberately NOT
+  used — a bounded shelf can never generate runaway energy, the honest/safe choice).
+- **Bit-transparent bypass = the NULL TEST.** A master dry/wet crossfade smooths engage
+  over ~20 ms; once disengaged **and settled to 0** `process` returns immediately and
+  leaves the buffer byte-for-byte unchanged, and module tails are cleared so a later
+  engage starts from silence. Per-module bypass is a smoothed dry/wet blend so it never
+  pops. Pinned by `DubRackTests` (bit-transparency before/after engage, no NaN + bounded
+  sample-step across engage+sweep, self-oscillation finite & caught by the limiter).
+- **Params cross as atomics** (`RackParameters`, IEEE bit patterns + `Atomic<Bool>`),
+  written by the `@MainActor` `RackModel` and read once per block into a stack
+  `RackTargets`; `DubRack` owns all smoothing so no control zippers. Same shared-instance
+  ownership as `captureTap`: created once in `HaloAppModel`, threaded through
+  `MonitorController → MonitorRouteConfig → MonitorRenderContext`.
+- **Tempo-sync vs tap-tempo** live entirely on the main actor: `RackModel` derives the
+  echo delay-time (ms) from the observed **MIDI clock** BPM when present, else from a
+  **tap-tempo** estimate, and writes the single `echoTimeMs` atomic — the render callback
+  stays clock-agnostic. No tempo is ever invented (nil clock → tap, nil tap → free time).
+- **PRINT FX** (Brief §7) reuses the ONE `CaptureTap` ring/drain: a `postFX` atomic flips
+  the producer from the input callback (raw, pre-gain) to the output callback (post-rack,
+  pre-limiter). It is set BEFORE arming and reset at stop, so the SPSC ring always has a
+  single producer thread. The take is tagged `-fx` on disk and the Capture caption says
+  so — a print-FX take is never mistaken for a raw one (§1/§4 honesty).
+- **Honesty:** the rack is pure host DSP, never an EP-40 state. The MASTER panel states
+  it is only audible while a monitor route runs; the DSP claims nothing about hardware.
+- **RACK mode ships:** `rackAvailable` flipped to `true`, so RACK appears in the mode bar
+  (⌘5 = RACK, ⌘6 = BACKUPS) with a full `RackRail` of mechanical `HaloKnob`s (real rotary
+  travel, orange reserved for engaged/committed). NEEDS-DEVICE: live-clock sync feel, CPU
+  on battery and the 30-min rack-engaged stability soak are validated on hardware.
+
 ---
 
 _Open decisions awaiting evidence:_

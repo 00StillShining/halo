@@ -33,6 +33,13 @@ final class CaptureTap: @unchecked Sendable {
     /// (relaxed) once per block. When false the tap costs a single atomic load.
     let armed = Atomic<Bool>(false)
 
+    /// PRINT FX mode (Brief §7, Phase 5a). When false (default) the RAW input
+    /// callback is the producer (pre-gain/pre-limiter/pre-FX). When true the OUTPUT
+    /// callback produces instead, tapping the POST-rack / pre-limiter signal so the
+    /// take captures the performed FX. Set on the main actor BEFORE arming and never
+    /// flipped mid-take, so the ring keeps exactly one producer thread (SPSC).
+    let postFX = Atomic<Bool>(false)
+
     /// Total STEREO FRAMES committed to the writer (drain thread writes; the main
     /// actor may poll it as an alternative elapsed source).
     let framesWritten = Atomic<Int>(0)

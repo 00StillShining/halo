@@ -54,6 +54,9 @@ final class MonitorController {
     /// Shared RAW-input recorder tap (P2-recorder). Passed into every route config
     /// so the recorder can tap the live input; nil when no recorder is attached.
     private let captureTap: CaptureTap?
+    /// Shared dub FX rack parameter bridge (P5a-rack). Passed into every route config
+    /// so the output callback can read it; nil when no rack is attached.
+    private let rackParams: RackParameters?
     private let gainStore: MonitorPreferenceStore
     private var meterTask: Task<Void, Never>?
 
@@ -63,10 +66,12 @@ final class MonitorController {
     init(engine: MonitorEngine = EP40AudioRouter(),
          levelBridge: AudioLevelBridge = AudioLevelBridge(),
          captureTap: CaptureTap? = nil,
+         rackParams: RackParameters? = nil,
          gainStore: MonitorPreferenceStore = UserDefaults.standard) {
         self.engine = engine
         self.levelBridge = levelBridge
         self.captureTap = captureTap
+        self.rackParams = rackParams
         self.gainStore = gainStore
         // Restore the remembered fader position (clamped), or the −12 dB default when
         // unset. Assigning in `init` does NOT fire `didSet`, so this neither persists
@@ -102,7 +107,8 @@ final class MonitorController {
             profile: profile,
             initialGainDB: gainDB,
             levelBridge: levelBridge,
-            captureTap: captureTap)
+            captureTap: captureTap,
+            rackParams: rackParams)
         do {
             try engine.start(config: config)
             activeInputUID = inputUID

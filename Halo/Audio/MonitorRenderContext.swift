@@ -36,10 +36,12 @@ final class MonitorRenderContext: @unchecked Sendable {
     // MARK: DSP chain (render-thread owned)
     var gain: MonitorGain
     var limiter: SafetyLimiter
-    /// Phase 5 FX insert point. No FX exists yet, so the chain is bit-transparent
-    /// here; when the rack ships it processes between gain and limiter and must stay
-    /// bypassable/bit-transparent (Brief §8/§11).
-    let fxBypassed = Atomic<Bool>(true)
+    /// Phase 5a dub FX rack (Brief §5a). Inserted between gain and limiter; when the
+    /// master is disengaged and settled it is bit-transparent (the NULL TEST). The
+    /// render thread owns this object; the UI only crosses the atomic `rackParams`
+    /// seam. Nil `rackParams` (no rack attached to the route) skips it entirely.
+    let rack: DubRack
+    let rackParams: RackParameters?
 
     let meter: AudioMeter
     let levelBridge: AudioLevelBridge
@@ -56,10 +58,12 @@ final class MonitorRenderContext: @unchecked Sendable {
     let gainTargetBits: Atomic<UInt32>
 
     init(sampleRate: Double, maxFrames: Int, initialGainDB: Double,
-         levelBridge: AudioLevelBridge, captureTap: CaptureTap? = nil) {
+         levelBridge: AudioLevelBridge, captureTap: CaptureTap? = nil,
+         rackParams: RackParameters? = nil) {
         self.maxFrames = maxFrames
         self.levelBridge = levelBridge
         self.captureTap = captureTap
+        self.rackParams = rackParams
 
         var asbd = AudioStreamBasicDescription()
         asbd.mSampleRate = sampleRate
@@ -77,6 +81,7 @@ final class MonitorRenderContext: @unchecked Sendable {
 
         gain = MonitorGain(db: initialGainDB, sampleRate: sampleRate)
         limiter = SafetyLimiter(sampleRate: sampleRate)
+        rack = DubRack(sampleRate: sampleRate, maxFrames: max(maxFrames, 512))
         meter = AudioMeter(sampleRate: sampleRate)
         gainTargetBits = Atomic<UInt32>(MonitorGain.linear(fromDB: initialGainDB).bitPattern)
 
@@ -129,11 +134,27 @@ func monitorOutputRender(
         (out + got).update(repeating: 0, count: needed - got)
     }
 
-    // Chain: monitor gain → (FX insert, bypassed) → −1 dBFS limiter.
+    // Chain: monitor gain → dub FX rack (Phase 5a, bit-transparent when bypassed)
+    // → −1 dBFS limiter.
     ctx.gain.setTargetLinear(Float(bitPattern: ctx.gainTargetBits.load(ordering: .relaxed)))
     ctx.gain.processStereo(out, frames: frames)
-    // FX insert point (Phase 5) — bypassed, so nothing runs and the signal is
-    // untouched here.
+    // FX insert (Brief §5a): post-gain / pre-limiter. When the master is disengaged
+    // and settled this is a bit-transparent no-op (the NULL TEST).
+    if let rackParams = ctx.rackParams {
+        ctx.rack.process(out, frames: frames, params: rackParams)
+    }
+
+    // PRINT FX (Brief §7): when the recorder is armed in post-FX mode, tap the
+    // post-rack / pre-limiter signal here into the recorder's OWN ring. Mutually
+    // exclusive with the input callback's raw write (postFX is set before arming and
+    // never flips mid-take), so the SPSC ring keeps a single producer. RT-safe: two
+    // relaxed loads when idle; a preallocated ring write + peak publish when active.
+    if let tap = ctx.captureTap,
+       tap.armed.load(ordering: .relaxed), tap.postFX.load(ordering: .relaxed) {
+        tap.ring.write(out, count: needed)
+        tap.meter.publish(out, frames: frames)
+    }
+
     // Raw (pre-limiter) peaks: the only place clip can be judged honestly — the
     // limiter caps the buffer at −1 dBFS, so post-limiter peaks never reach 1.0.
     let rawPeakL = MeterMath.peak(out, frames: frames, stride: 2, channel: 0)
@@ -175,9 +196,11 @@ func monitorInputRender(
     ctx.ringBuffer.write(src, count: needed)
 
     // P2-recorder: tap the RAW pre-monitor stream (before gain/limiter/FX) into the
-    // recorder's OWN ring when armed. One relaxed atomic load when idle; both calls
-    // below are RT-safe (preallocated ring write + peak-only meter publish).
-    if let tap = ctx.captureTap, tap.armed.load(ordering: .relaxed) {
+    // recorder's OWN ring when armed AND not in PRINT FX mode (post-FX is produced by
+    // the output callback instead — DD). One relaxed atomic load when idle; both
+    // calls below are RT-safe (preallocated ring write + peak-only meter publish).
+    if let tap = ctx.captureTap,
+       tap.armed.load(ordering: .relaxed), !tap.postFX.load(ordering: .relaxed) {
         tap.ring.write(src, count: needed)
         tap.meter.publish(src, frames: frames)
     }

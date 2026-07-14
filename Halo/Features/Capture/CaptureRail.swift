@@ -73,7 +73,9 @@ struct CaptureRail: View {
     private var captureCaption: String {
         switch recorder.state {
         case .recording:
-            return "CAPTURING RAW EP-40 INPUT — PRE-GAIN / PRE-LIMITER"
+            return recorder.printFX
+                ? "CAPTURING POST-RACK FX — TAGGED “FX” ON DISK"
+                : "CAPTURING RAW EP-40 INPUT — PRE-GAIN / PRE-LIMITER"
         case let .failed(reason):
             switch reason {
             case .monitorOff: return "MONITOR OFF — START MONITORING TO RECORD"

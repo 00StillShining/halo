@@ -85,7 +85,7 @@ struct HaloRailView: View {
                 case .edit:    EditRail()
                 case .capture: CaptureRail()
                 case .backups: BackupsRail()
-                case .rack:    RackRailPlaceholder()
+                case .rack:    RackRail()
                 }
             }
             .padding(HaloMetrics.s2)
@@ -113,15 +113,5 @@ struct HaloRailView: View {
         .buttonStyle(.plain)
         .focusable()
         .help("Collapse rail")
-    }
-}
-
-/// RACK is hidden until Phase 5a; this placeholder only exists so the routing
-/// switch is exhaustive. It is never reachable while `rackAvailable == false`.
-private struct RackRailPlaceholder: View {
-    var body: some View {
-        HaloPanel("RACK") {
-            RailCaption("RACK — PHASE 5A")
-        }
     }
 }

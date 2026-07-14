@@ -675,6 +675,46 @@ throws, import builds asset+summary, and the pure bucketing math (min/max per bu
 one-bucket-per-frame cap, empty input, peak from trough/crest) plus mono mixdown and the memory formula. Real
 MP3/M4A round-trips through hardware codecs and on-device byte acceptance remain needs-device.
 
+### DD-021 · Non-destructive prep, export treatments & size estimate (P3-prep)
+**2026-07-14.** Brief §8 sample processing, LOCAL only. Three additions under `Halo/Samples/`:
+
+- **`SamplePrep`** — a `Sendable`/`Equatable` value type describing an edit (trim window, equal-power fades,
+  gain, opt-in normalise, channel mode); it never mutates the source. `apply(to:)` reads a
+  `CanonicalAudioBuffer` and returns a NEW buffer in the float domain at the source rate. Documented,
+  deterministic order: **trim → channels → gain → fades → normalise**. Normalise runs LAST so the output peak
+  lands exactly on target regardless of prior stages. All maths is vDSP over real decoded samples.
+  - **Equal-power fades**: fade-in `g[i]=sin(½π·i/(F−1))` (g[0]=0…g[F−1]=1), fade-out `cos` mirror. `F<2` is a
+    safe no-op; fade lengths clamp to the buffer so overlap never overruns.
+  - **Channel conversion** (Brief §8 "equal-power or documented, never a naïve discard"): mono downmix is the
+    equal-power sum `Σ ch / √N` (RMS-preserving for uncorrelated channels; a correlated full-scale pair can
+    exceed unity and is caught by opt-in normalise / the 16-bit export clamp — chosen over ÷N so downmix RMS is
+    honest). Mono→stereo copies the channel to both L/R (documented copy, not attenuated). Note: this differs
+    from `CanonicalAudioBuffer.monoMixdown` (equal-**average** ÷N), which is only a display-summary mixdown, not
+    an export path — the two are intentionally distinct and both documented.
+  - **Normalise** defaults to −1 dBFS, opt-in; a zero-peak (silent) buffer is never scaled up (no invented gain).
+- **`SampleTreatment`** + **`SampleTreatmentEncoder`** — the treatment enum is purely the OUTPUT sample-rate
+  policy (all treatments 16-bit LinearPCM, the device native depth): `ORIGINAL` preserves the source rate when
+  ≤46,875 Hz and clamps (never upsamples) above it; `HIGH`=46,875, `BALANCED`=32,000, `LO-FI`=22,050/11,025.
+  Kept separate from `SamplePrep` so prep shapes audio at source rate, then the treatment resamples+quantises.
+  The offline encoder is `nonisolated async` (runs off `@MainActor`, Brief §2), resamples via `AVAudioConverter`
+  at `AVAudioQuality.max` so LO-FI downsamples are anti-aliased (honest quality, no hand-rolled filter), trims/pads
+  the converter output to the exact arithmetic frame count so encode size matches the estimate deterministically,
+  then quantises to interleaved Int16 (clamp [−1,1], ×32767, round-to-nearest, no dither — documented).
+  `encodeToWAV` writes a real re-openable 16-bit WAV and returns the **measured** container overhead
+  (`fileSize − payloadBytes`), never a guessed header constant.
+- **`SampleMemoryEstimator.estimate(…)`** — prep+treatment-aware, pure arithmetic on measured counts (decodes
+  nothing): `SampleSizeEstimate{ frames, channels, sampleRate, payloadBytes, containerOverhead }` where frames =
+  round(preppedFrames · targetRate/sourceRate), payload = frames×channels×2. Satisfies the Phase 3 exit criterion
+  "same source prepared with different treatments reports predictable sizes".
+
+Tested headless (`SamplePrepTests`, 22 cases): trim window + source-immutability, clamp/empty selection, identity
+passthrough, gain, equal-power fade endpoints/curve/clamp, normalise to −1 dBFS + silence-stays-silent, equal-power
+mono downmix (uncorrelated power preserved, not a discard) + mono→stereo copy, treatment rate resolution
+(preserve/clamp/fixed), predictable+monotonic sizes across all five treatments, trim+mono+overhead estimate,
+Int16 quantise clamp/interleave, and the real encoder (no-resample round-trip through a reopened WAV, 44.1k→LO-FI
+downsample frame count, honest empty encode, measured WAV overhead). On-device slot acceptance of any produced
+file remains **needs-device** (Phase 0B) — the encoders are verified LOCALLY only.
+
 ---
 
 _Open decisions awaiting evidence:_

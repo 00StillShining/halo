@@ -35,4 +35,57 @@ enum SampleMemoryEstimator {
         estimatedBytes(frames: asset.frameCount, channels: asset.channelCount,
                        containerOverhead: containerOverhead)
     }
+
+    // MARK: - Prep + treatment aware estimate
+
+    /// The predicted on-device footprint of a source once a `SamplePrep` and a
+    /// `SampleTreatment` are applied (Brief §8 exit criterion: "The same source prepared
+    /// with different treatments reports predictable sizes"). Pure arithmetic on measured
+    /// counts — it decodes nothing and invents nothing:
+    ///   • trim → `prep.outputFrameCount`
+    ///   • channels → `prep.outputChannelCount`
+    ///   • rate → `treatment.outputFrameCount` (round-to-nearest resample)
+    ///   • bytes → `frames × channels × 2 + measured overhead`
+    static func estimate(sourceFrameCount: Int,
+                         sourceChannelCount: Int,
+                         sourceSampleRate: Double,
+                         prep: SamplePrep,
+                         treatment: SampleTreatment,
+                         containerOverhead: Int = 0) -> SampleSizeEstimate {
+        let preppedFrames = prep.outputFrameCount(sourceFrameCount: sourceFrameCount)
+        let channels = prep.outputChannelCount(sourceChannelCount: sourceChannelCount)
+        let rate = treatment.resolvedSampleRate(sourceSampleRate: sourceSampleRate)
+        let frames = treatment.outputFrameCount(sourceFrameCount: preppedFrames,
+                                                sourceSampleRate: sourceSampleRate)
+        let payload = payloadBytes(frames: frames, channels: channels)
+        return SampleSizeEstimate(frames: frames, channels: channels, sampleRate: rate,
+                                  payloadBytes: payload, containerOverhead: max(0, containerOverhead))
+    }
+
+    /// Convenience over a decoded `SampleAsset`.
+    static func estimate(for asset: SampleAsset,
+                         prep: SamplePrep,
+                         treatment: SampleTreatment,
+                         containerOverhead: Int = 0) -> SampleSizeEstimate {
+        estimate(sourceFrameCount: asset.frameCount,
+                 sourceChannelCount: asset.channelCount,
+                 sourceSampleRate: asset.sampleRate,
+                 prep: prep, treatment: treatment, containerOverhead: containerOverhead)
+    }
+}
+
+/// A resolved size estimate for one prep+treatment combination. Value type for the right
+/// rail's "memory impact" readout (Brief §7); all fields are derived arithmetically from
+/// measured source counts.
+struct SampleSizeEstimate: Sendable, Equatable {
+    let frames: Int
+    let channels: Int
+    let sampleRate: Double
+    let payloadBytes: Int
+    let containerOverhead: Int
+
+    /// Total on-device bytes = audio payload + measured container overhead.
+    var totalBytes: Int { payloadBytes + containerOverhead }
+
+    var durationSeconds: Double { sampleRate > 0 ? Double(frames) / sampleRate : 0 }
 }

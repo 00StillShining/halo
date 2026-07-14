@@ -97,6 +97,15 @@ final class MonitorController {
         }
     }
 
+    /// Reflect a pre-start refusal without opening the engine (Brief §1/§4). Used
+    /// when the caller knows the route cannot honestly run — e.g. microphone access
+    /// is denied, so an opened AUHAL would only capture silence. Ensures any prior
+    /// route is torn down and the meter rests at silence, then reports the reason.
+    func fail(_ error: MonitorRouteError) {
+        stop()
+        state = .failed(error)
+    }
+
     /// Stop the route (explicit user action, USB removal, or app teardown). Drops
     /// the meter to silence.
     func stop() {

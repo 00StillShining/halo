@@ -601,6 +601,50 @@ extracted `drainAvailable` drain body, and `TakesStore.readTake` are unit-tested
 needs-device. `NSMicrophoneUsageDescription` belongs to the monitor route's device layer (the AUHAL
 input), not the WAV writer — recording without a route never trips it.
 
+### DD-019 · Connection lifecycle & resilience (P2-lifecycle)
+**2026-07-14.** Brief §8 "safety & resilience" made concrete without inventing any hardware state.
+
+**Honest lifecycle phase.** `HaloLifecyclePhase` (pure, `HaloLifecycle.swift`) derives one coarse
+connection word — STARTING / WAIT / READY / LIVE / SLEEP / ERROR — from the same observed truths as the
+halo ring (observer running, endpoint connected, live feed, monitor engaged, system asleep, real error
+label). Priority: `error > suspended > live > ready > waiting > starting`. Surfaced as a new `STATE` chip
+in `HaloStatusBar` (tinted green on LIVE, warning on ERROR, muted on SLEEP). The observable write is kept
+off the per-note hot path — `refreshLifecycle()` runs on connection/monitor/sleep transitions and once on
+the transition *into* a live feed, never per MIDI message.
+
+**Held-key release (no stuck notes).** A single `releaseAllHeldKeys()` clears the frontmost-held display
+stack (`heldMIDIKeys`) and the polyphonic scene travel/LEDs (`scene.releaseAllPads()`). It fires on every
+event after which Halo can no longer guarantee it will observe the matching Note Off: **disconnect** (USB
+removal), **sleep** (`NSWorkspace.willSleepNotification`), and **background** (`scenePhase == .background`
+— App Nap can throttle MIDI delivery). Mere key-window focus loss (`.inactive`) does **not** release —
+events keep flowing there, so the held state stays honest; and SwiftUI resets `isPressed` on pointer
+cancel, so mechanical buttons never stick on their own.
+
+**Sleep/wake.** `startLifecycleObservers()` watches `NSWorkspace` will-sleep / did-wake on `.main`.
+Sleep finalizes any take into a valid WAV, stops the monitor units promptly, releases held keys and drops
+a stale live display to WAIT → phase `.suspended`. Wake clears the flag and re-reads the lifecycle but
+**never auto-restarts monitoring** (Brief §8: monitoring begins only after an explicit user action).
+
+**Running-route reconcile.** `MonitorRouteReconciler.shouldStop` (pure) stops a *running* route when the
+input or output UID it opened disappears from a fresh Core Audio snapshot (headphones unplugged, EP-40
+yanked on the audio side, a device removed alongside a default-output change). Wired via a new
+`AudioDeviceDiscovery.onChange` callback. Halo never silently re-points a live route at a different device
+— it stops and lets the operator re-engage (Brief §8: do not silently switch devices).
+
+**Audio permission.** Capturing the EP-40 USB-audio input trips the same TCC mic gate as a microphone, so
+`AudioPermission` (+ injectable `AudioPermissionProbe` over `AVCaptureDevice`) gates an explicit
+`startMonitor`: authorized opens the route; undetermined prompts once and opens only on grant; denied /
+restricted is refused honestly via `MonitorController.fail(.micPermission)` (new `MonitorRouteError` case)
+— no route opens, meters rest at silence, and `PlayRail` shows "MICROPHONE ACCESS DENIED — ENABLE IN
+SYSTEM SETTINGS". A denied device is never shown as monitoring.
+
+**Tested headless** (`HaloLifecycleTests`, 22 cases): phase priority + words, reconciler decisions,
+permission-status mapping + `ensureAuthorized` (authorized / denied / undetermined-grant), model gating
+(denied refused, authorized passes the gate), and held-key release + status transitions on
+connect→live→disconnect, sleep→wake, and background — all via a `model.ingest(_:)` seam that mirrors the
+live CoreMIDI delivery Task, so no MIDI/audio hardware is required. Real sleep/wake + real device-removal
+timing through hardware remain needs-device.
+
 ---
 
 _Open decisions awaiting evidence:_

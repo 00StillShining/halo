@@ -13,6 +13,7 @@ struct HaloStatusBar: View {
     var isDisplayLive: Bool
     var midiEndpointName: String?
     var ringState: HaloRingState
+    var lifecyclePhase: HaloLifecyclePhase
     var palette: HaloPalette
     var onSelectPalette: (HaloPalette) -> Void
 
@@ -27,6 +28,7 @@ struct HaloStatusBar: View {
                 .help(midiEndpointName ?? "No matching EP-40 MIDI source")
             statusChip(label: "FW", value: firmwareStatus, accent: false)
             statusChip(label: "USB", value: usbStatus, accent: false)
+            statusChip(label: "STATE", value: lifecyclePhase.word, tint: lifecycleChipTint)
             statusChip(label: "DISPLAY", value: displayStatus, accent: isDisplayLive)
             statusChip(label: "HALO", value: ringState.statusWord, tint: haloChipTint)
 
@@ -86,6 +88,15 @@ struct HaloStatusBar: View {
         case .connected, .monitoring, .recording, .transfer: return c.riddimGreen
         default: return nil
         }
+    }
+
+    // Lifecycle chip tint (Brief §8): green on a live feed / engaged monitor, warning
+    // on an observed failure, muted while suspended (system asleep), plain otherwise.
+    private var lifecycleChipTint: Color? {
+        if lifecyclePhase.isError { return c.warning }
+        if lifecyclePhase.isLive { return c.riddimGreen }
+        if lifecyclePhase.isSuspended { return c.inkSoft }
+        return nil
     }
 
     // Honest MONITOR word — there is no audio engine yet, so this only reads MON

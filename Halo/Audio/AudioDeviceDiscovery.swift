@@ -22,6 +22,12 @@ final class AudioDeviceDiscovery {
     /// whole-value on every observed change so SwiftUI diffs cleanly.
     private(set) var snapshot: AudioDeviceSnapshot
 
+    /// Invoked on the main actor after every republished snapshot (device-list,
+    /// default-output or sample-rate change). The app model uses it to reconcile a
+    /// RUNNING monitor route against the devices that still exist (Brief §8). Set
+    /// once by the owner; discovery itself stays read-only and route-agnostic.
+    var onChange: (@MainActor () -> Void)?
+
     private var isRunning = false
     private let systemObject = AudioObjectID(kAudioObjectSystemObject)
     private let listenerQueue = DispatchQueue(label: "studios.meremortal.halo.audio.listeners")
@@ -118,6 +124,11 @@ final class AudioDeviceDiscovery {
         )
 
         reconcileRateListeners(currentIDs: Set(ids))
+
+        // Let the owner react to the fresh snapshot (e.g. stop a route whose device
+        // just disappeared). Read-only from discovery's side — the callback owns
+        // any route decision.
+        onChange?()
     }
 
     private func reconcileRateListeners(currentIDs: Set<AudioObjectID>) {

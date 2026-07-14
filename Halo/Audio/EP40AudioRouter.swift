@@ -26,6 +26,7 @@ struct MonitorRouteConfig: Sendable {
 enum MonitorRouteError: Error, Equatable {
     case noInputDevice          // the EP-40 audio input is not present
     case noOutputDevice         // the chosen output UID resolved to nothing
+    case micPermission          // microphone (USB-audio input) access not granted
     case componentUnavailable   // the HAL output AudioComponent is missing
     case unitCreation(OSStatus)
     case configuration(OSStatus)

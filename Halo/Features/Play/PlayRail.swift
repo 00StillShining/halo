@@ -34,6 +34,9 @@ struct PlayRail: View {
         case let .failed(error):
             return Self.reason(for: error)
         case .idle:
+            if model.permission.status == .denied || model.permission.status == .restricted {
+                return "MICROPHONE ACCESS DENIED — ENABLE IN SYSTEM SETTINGS"
+            }
             if ep40InputUID == nil { return "EP-40 AUDIO INPUT NOT DETECTED" }
             if outputUID == nil { return "NO OUTPUT DEVICE" }
             return "READY — STARTS AT −12 DB ON PRESS"
@@ -44,6 +47,7 @@ struct PlayRail: View {
         switch error {
         case .noInputDevice: return "EP-40 AUDIO INPUT NOT DETECTED"
         case .noOutputDevice: return "NO OUTPUT DEVICE"
+        case .micPermission: return "MICROPHONE ACCESS DENIED — ENABLE IN SYSTEM SETTINGS"
         case .componentUnavailable: return "AUDIO COMPONENT UNAVAILABLE"
         case let .unitCreation(s): return "AUDIO UNIT ERROR (\(s))"
         case let .configuration(s): return "ROUTE CONFIG ERROR (\(s))"

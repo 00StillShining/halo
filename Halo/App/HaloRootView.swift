@@ -32,6 +32,7 @@ struct HaloRootView: View {
                 isDisplayLive: model.isDisplayLive,
                 midiEndpointName: model.midiEndpointName,
                 ringState: model.ringState,
+                lifecyclePhase: model.lifecyclePhase,
                 palette: model.palette,
                 onSelectPalette: { model.selectPalette($0) }
             )
@@ -60,9 +61,20 @@ struct HaloRootView: View {
             model.scene.setReduceMotion(reduceMotion)
             model.startEP40Monitoring()
             model.startAudioDeviceDiscovery()
+            model.startLifecycleObservers()
         }
         .onChange(of: reduceMotion) { _, newValue in
             model.scene.setReduceMotion(newValue)
+        }
+        // Resilience (Brief §8): a hidden/suspended app can miss Note Offs (App Nap),
+        // so drop every visually pressed key on background — never a stuck pad. Also
+        // re-read mic permission on return (it may have changed in System Settings).
+        .onChange(of: scenePhase) { _, newValue in
+            switch newValue {
+            case .background: model.handleSceneBackgrounded()
+            case .active:     model.permission.refresh()
+            default:          break
+            }
         }
         .task(id: displayLifecycle) {
             await model.runDisplayPreview(

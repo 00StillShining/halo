@@ -1,3 +1,4 @@
+import AppKit
 import CoreAudio
 import CoreMIDI
 import Foundation
@@ -40,12 +41,18 @@ final class HaloAppModel {
     /// Session recorder lifecycle. Records the raw input while a monitor route runs.
     let recorder: SessionRecorder
 
-    init() {
+    /// Microphone (USB-audio input) authorisation (Brief §8). Gates an explicit
+    /// monitor start and is surfaced honestly — a denied device can never be shown
+    /// as monitoring. Injectable so the gating is unit-tested with a mock probe.
+    let permission: AudioPermission
+
+    init(permission: AudioPermission = AudioPermission()) {
         let sceneController = EP40SceneController()
         scene = sceneController
         monitor = MonitorController(levelBridge: sceneController.audioLevelBridge,
                                     captureTap: captureTap)
         recorder = SessionRecorder(tap: captureTap, takes: takes)
+        self.permission = permission
     }
 
     /// The running route's sample rate = the resolved output device's nominal rate.
@@ -70,11 +77,23 @@ final class HaloAppModel {
     }
 
     /// Start the monitor route (explicit user action, Brief §8) and reflect the
-    /// engaged-truth on the halo ring. All monitor start/stop goes through these
-    /// wrappers so `ringState` never lags the route.
+    /// engaged-truth on the halo ring. Gated on microphone authorisation: capturing
+    /// the EP-40 USB-audio input trips the same TCC gate as a mic, so a denied
+    /// device is refused honestly (the route would only capture silence) rather than
+    /// shown as monitoring. Undetermined prompts once; the route opens only on grant.
+    /// All monitor start/stop goes through these wrappers so `ringState` never lags.
     func startMonitor(inputUID: String?, outputUID: String?) {
-        monitor.start(inputUID: inputUID, outputUID: outputUID)
-        refreshRingState()
+        permission.ensureAuthorized { [weak self] granted in
+            guard let self else { return }
+            if granted {
+                self.monitor.start(inputUID: inputUID, outputUID: outputUID)
+            } else {
+                // Honest refusal: no route opens; the UI shows the real reason.
+                self.monitor.fail(.micPermission)
+            }
+            self.refreshRingState()
+            self.refreshLifecycle()
+        }
     }
 
     func stopMonitor() {
@@ -83,6 +102,7 @@ final class HaloAppModel {
         recorder.finishIfRecording()
         monitor.stop()
         refreshRingState()
+        refreshLifecycle()
     }
 
     // MARK: - Shell (Brief §7). UI-only state — a mode switch never touches
@@ -116,6 +136,10 @@ final class HaloAppModel {
     /// Halo-ring state, derived only from connection/monitor/record truth
     /// (Brief §5). Never derived from `displayState` preview/demo frames.
     private(set) var ringState: HaloRingState = .disconnected
+    /// Coarse connection lifecycle for the status strip (Brief §8): STARTING / WAIT
+    /// / READY / LIVE / SLEEP / ERROR. Same honest inputs as the ring, phrased as a
+    /// connection state. Starts at `.starting` (no observer running yet).
+    private(set) var lifecyclePhase: HaloLifecyclePhase = .starting
     private(set) var deviceStatus = "NO DEVICE"
     private(set) var firmwareStatus = "—"
     private(set) var usbStatus = "IDLE"
@@ -137,12 +161,99 @@ final class HaloAppModel {
     private var lastClockSeconds: Double?
     private var smoothedClockInterval: Double?
     private var lastNoteUptime = -Double.infinity
+    /// True inside a system sleep window (between `willSleep` and `didWake`). While
+    /// asleep no MIDI/audio can be observed, so held keys are released and the route
+    /// is stopped; the lifecycle reports `.suspended`.
+    private var systemAsleep = false
+    private var sleepObserver: NSObjectProtocol?
+    private var wakeObserver: NSObjectProtocol?
 
     /// Begin Core Audio device discovery for the output picker (Brief §8). Read
     /// only — installs property listeners and reflects real devices; it never
     /// changes the system default input/output. Idempotent for the app lifetime.
     func startAudioDeviceDiscovery() {
+        // Reconcile a running route against every fresh snapshot (default-output
+        // change, device removal) — Brief §8.
+        audioDevices.onChange = { [weak self] in self?.reconcileAudioDevices() }
         audioDevices.start()
+    }
+
+    /// Observe system sleep/wake (Brief §8). Sleep tears down inputs and releases
+    /// held keys promptly; wake restores the lifecycle read but never auto-restarts
+    /// monitoring (that stays an explicit user action). Idempotent; app-lifetime.
+    func startLifecycleObservers() {
+        guard sleepObserver == nil else { return }
+        permission.refresh()
+        let center = NSWorkspace.shared.notificationCenter
+        sleepObserver = center.addObserver(forName: NSWorkspace.willSleepNotification,
+                                           object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.systemWillSleep() }
+        }
+        wakeObserver = center.addObserver(forName: NSWorkspace.didWakeNotification,
+                                          object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.systemDidWake() }
+        }
+        refreshLifecycle()
+    }
+
+    /// System is going to sleep. Stop audio units promptly, finalize any take into a
+    /// valid WAV first, and release every visually pressed key — a pad still lit or a
+    /// route still "running" across sleep would be a faked hardware state (Brief §1/
+    /// §4/§8). A live display drops to WAIT since no activity can be observed asleep.
+    func systemWillSleep() {
+        systemAsleep = true
+        recorder.finishIfRecording()
+        monitor.stop()
+        releaseAllHeldKeys()
+        resetClockTracking()
+        if displayFeedMode == .live {
+            displayStatus = "WAIT"
+            present(.waiting)
+        }
+        if endpointConnected { usbStatus = "SLEEP" }
+        refreshRingState()
+        refreshLifecycle()
+    }
+
+    /// System woke. Clear the suspend flag and re-read the lifecycle; audio-device
+    /// discovery re-publishes on its own listeners. Monitoring is NOT auto-restarted
+    /// (Brief §8: it begins only after an explicit user action).
+    func systemDidWake() {
+        systemAsleep = false
+        permission.refresh()
+        if endpointConnected {
+            usbStatus = "MIDI"
+            displayStatus = "WAIT"
+            if displayFeedMode != .live { present(.waiting) }
+        }
+        refreshRingState()
+        refreshLifecycle()
+    }
+
+    /// App was hidden / suspended (scene phase → background). App Nap can throttle
+    /// MIDI delivery, so a pad lit from a Note On whose Note Off we may miss would
+    /// stick. Drop every visually pressed key to a known state; MIDI still drives
+    /// them again on return. Merely losing key-window focus (`.inactive`) does NOT
+    /// release — events keep flowing there, so the held state stays honest.
+    func handleSceneBackgrounded() {
+        releaseAllHeldKeys()
+        if displayFeedMode == .live, !systemAsleep {
+            displayStatus = "WAIT"
+            present(.waiting)
+        }
+        refreshLifecycle()
+    }
+
+    /// Reconcile a RUNNING route against the current device snapshot. Stops the
+    /// route when the input or output it opened has vanished (Brief §8). No-op when
+    /// idle. Pure decision lives in `MonitorRouteReconciler` (unit-tested).
+    private func reconcileAudioDevices() {
+        guard monitor.isRunning else { return }
+        if MonitorRouteReconciler.shouldStop(activeInputUID: monitor.activeInputUID,
+                                             activeOutputUID: monitor.activeOutputUID,
+                                             snapshot: audioDevices.snapshot) {
+            stopMonitor()   // finalizes any take, drops the ring, re-reads lifecycle
+        }
     }
 
     /// Starts once for the application lifetime. Closing/reopening a window must
@@ -168,11 +279,13 @@ final class HaloAppModel {
             // Client is alive and watching but no EP-40 endpoint yet → discovering.
             ringErrorLabel = nil
             refreshRingState()
+            refreshLifecycle()
         } catch {
             usbStatus = "MIDI ERROR"
             displayStatus = "PREVIEW"
             ringErrorLabel = "MIDI"
             refreshRingState()
+            refreshLifecycle()
             present(.previewStill)
         }
     }
@@ -194,6 +307,43 @@ final class HaloAppModel {
         )
         ringState = HaloRingState.derive(inputs)
         scene.applyRing(ringState)
+    }
+
+    /// Recompute the coarse lifecycle phase (Brief §8) from the same honest inputs
+    /// as the ring. Called on connection/monitor/sleep transitions and once when a
+    /// live feed begins — never per-note (a cheap enum, but the observable write is
+    /// kept off the hot path so SwiftUI is not invalidated every MIDI message).
+    private func refreshLifecycle() {
+        lifecyclePhase = HaloLifecyclePhase.derive(.init(
+            observerRunning: midiObserver != nil,
+            endpointConnected: endpointConnected,
+            displayLive: displayFeedMode == .live,
+            monitorEngaged: monitor.isRunning,
+            systemAsleep: systemAsleep,
+            errorLabel: ringErrorLabel))
+    }
+
+    /// Release every visually pressed key to a known state (Brief §8): the frontmost-
+    /// held display collapse and the polyphonic scene travel/LEDs. Used on disconnect,
+    /// sleep and background — anywhere Halo can no longer guarantee it will observe the
+    /// matching Note Off, so a lingering lit pad would be dishonest.
+    private func releaseAllHeldKeys() {
+        heldMIDIKeys.removeAll(keepingCapacity: true)
+        scene.releaseAllPads()
+    }
+
+    /// Count of keys Halo is currently showing as held (frontmost-held display
+    /// stack). Test seam for the held-key-release resilience contract.
+    var pressedVisualKeyCount: Int { heldMIDIKeys.count }
+
+    /// Delivery seam mirroring the live CoreMIDI Task, so the connection + note
+    /// lifecycle (and the held-key release on disconnect) is unit-tested without
+    /// CoreMIDI hardware. Same routing the observer stream uses.
+    func ingest(_ observation: EP40MIDIObservation) {
+        switch observation {
+        case let .connection(connection): receive(connection)
+        case let .event(event): receive(event)
+        }
     }
 
     /// Automatic, deterministic disconnected demo. SwiftUI cancels this as
@@ -244,6 +394,7 @@ final class HaloAppModel {
             present(.previewStill)
         }
         refreshRingState()
+        refreshLifecycle()
     }
 
     private func receive(_ event: EP40MIDIEvent) {
@@ -344,6 +495,9 @@ final class HaloAppModel {
         displayStatus = "LIVE"
         usbStatus = "MIDI RX"
         present(state)
+        // Lifecycle flips to LIVE only on the transition into a live feed — kept off
+        // the per-note hot path (the observable write would otherwise fire per event).
+        if firstLiveEvent { refreshLifecycle() }
     }
 
     private func updateTempo(from timeStamp: MIDITimeStamp) {

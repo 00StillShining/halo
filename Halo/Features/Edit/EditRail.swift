@@ -286,6 +286,10 @@ struct EditRail: View {
                     .mechanicalEngaged(audition.isPlaying)
                     .focusable()
                     .help(audition.isPlaying ? "Stop audition — Space" : "Audition locally — Space")
+                Button("CHOP INTO PADS") { model.beginChopFromEdit() }
+                    .buttonStyle(MechanicalButtonStyle())
+                    .focusable()
+                    .help("Onset-slice this sample onto consecutive pads (device send disabled, Phase 0B)")
                 Spacer(minLength: 0)
             }
             RailCaption("SPACE TO AUDITION — LOCAL PLAYBACK OF THE PREPARED SAMPLE")

@@ -17,6 +17,7 @@ struct HaloRootView: View {
             mainLayout
             preparationOverlay
             diagnosticsOverlay
+            chopOverlay
         }
         .haloPalette(model.palette)
     }
@@ -91,7 +92,9 @@ struct HaloRootView: View {
         // while the rename field is focused (it consumes Space to type). Escape must NOT
         // stop audition — the transient stack above is left untouched.
         .onKeyPress(.space) {
-            guard EditSession.shouldAudition(mode: model.mode,
+            // Not while a CHOP surface is open — it owns the keyboard for slice audition.
+            guard !model.chop.isOpen,
+                  EditSession.shouldAudition(mode: model.mode,
                                              isRenaming: model.edit.isRenaming,
                                              hasSelection: model.edit.selectedAssetID != nil)
             else { return .ignored }
@@ -178,6 +181,20 @@ struct HaloRootView: View {
             DiagnosticsDrawer()
                 .transition(reduceMotion ? .opacity : .move(edge: .trailing))
                 .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    /// The CHOP surface (Brief §5c, DD-030), presented as a custom transient over
+    /// everything — identical scrim pattern to `preparationOverlay`. A dimmed scrim
+    /// cancels on tap; Escape cancels via the transient stack inside `ChopSurface`.
+    @ViewBuilder
+    private var chopOverlay: some View {
+        if model.chop.isOpen {
+            let c = HaloColorTokens.tokens(for: model.palette)
+            c.ink.opacity(0.25)
+                .ignoresSafeArea()
+                .onTapGesture { model.closeChop() }
+            ChopSurface()
         }
     }
 

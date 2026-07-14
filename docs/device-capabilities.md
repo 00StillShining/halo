@@ -67,6 +67,8 @@ Status legend:
 | SysEx framing / device ID / checksum / ack | UNKNOWN — community EP-133/1320 notes are orientation only | Phase 0B | — |
 | halo-ring `.transfer` state — real progress | needsDevice — requires the proprietary transfer protocol (Phase 0B). UI complete (`HaloRingRig` renders the clockwise progress ring + `HALO` chip `TX %`), producer absent. | Phase 0B | 2026-07-13 |
 | Edit a/replace an existing device sample | needsDevice — requires sample **download** (halo never has a device sample's audio, so it cannot draw its waveform or edit it) plus verified upload/assign (Phase 0B). Edit mode `SEND CHANGES` is shown but disabled; the byte estimate's container overhead stays measured-as-0 until the device header is known. | Phase 0B | 2026-07-14 |
+| CHOP onset detection + slicing (local) | **BUILT (P5c, DD-030)** — spectral-flux onset detection (`OnsetDetector`, vDSP real FFT + adaptive peak-pick) over the real decoded mono mixdown; editable `SliceSet`, per-slice micro-fades, LOCAL slice audition. Silent/short input yields no slices. Deterministic, unit-tested (`OnsetDetectorTests`). | DD-030 | 2026-07-14 |
+| CHOP → pads serialised upload+assign transaction | needsDevice — the `SendToPadsPlan` preview (pads/slots/bytes/overflow) is REAL local arithmetic over MOCK device context, but the actual write is the proprietary protocol (Phase 0B). `ChopSending` default (`DeviceUnavailableChopSender`) returns `.needsDevice`; `SEND TO PADS` is shown but disabled and never Return-bound. No protocol bytes invented. | Phase 0B | 2026-07-14 |
 
 ## Firmware / general
 

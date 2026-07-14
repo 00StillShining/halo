@@ -22,6 +22,11 @@ final class HaloAppModel {
     /// prep; pad target is MOCK device context. UI-only, same honesty class as `load`.
     let edit = EditSession()
 
+    /// CHOP surface state (Brief §5c, DD-030). Transient surface (not a mode): LOCAL
+    /// spectral-flux slicing of a break/vocal/grab; pads/slots are MOCK device context
+    /// and SEND TO PADS is disabled (Phase 0B). Same honesty class as `edit`.
+    let chop = ChopSession()
+
     /// LOCAL sample audition (Brief §7). Plays a prepared buffer to the SYSTEM DEFAULT
     /// output — deliberately separate from the EP-40 monitor route (DD-022), claims
     /// nothing about the device.
@@ -276,6 +281,46 @@ final class HaloAppModel {
             scene.focusCamera(onPadGridIndex: gridIndex)
         } else {
             scene.focusCamera(for: .edit)
+        }
+    }
+
+    // MARK: - CHOP (Brief §5c, DD-030)
+
+    /// Open CHOP on a captured take/grab (from Capture). Decodes off `@MainActor`
+    /// (Brief §2) then opens the transient surface. Honest no-op if the file cannot be
+    /// decoded — never opens on invented audio.
+    func beginChopFromURL(_ url: URL) {
+        Task { @MainActor in
+            guard let source = await ChopSource.fromURL(url) else { return }
+            chop.begin(source: source)
+        }
+    }
+
+    /// Open CHOP on the currently-selected LOCAL Edit sample. Ensures its canonical
+    /// buffer is resident (re-decoding if the cache-of-1 evicted it), then opens.
+    func beginChopFromEdit() {
+        guard let asset = edit.selectedAsset else { return }
+        Task { @MainActor in
+            await edit.ensureBuffer(asset.id)
+            guard let buffer = edit.selectedBuffer else { return }
+            chop.begin(source: ChopSource.fromEditBuffer(name: asset.displayName, buffer: buffer))
+        }
+    }
+
+    /// Close the CHOP surface and stop any local slice audition (DD-022, no device claim).
+    func closeChop() {
+        chop.close()
+        audition.stop()
+    }
+
+    /// Audition a slice LOCALLY to the system default output (the shared `AuditionPlayer`,
+    /// DD-022 — never the EP-40 route, so it claims nothing about the device). The playhead
+    /// binds to this exact playback via the returned id.
+    func auditionChopSlice(index: Int) {
+        Task { @MainActor in
+            guard let buffer = await chop.sliceAuditionBuffer(index: index) else { return }
+            let id = chop.beginAudition(slice: index)
+            audition.play(buffer, assetID: id)
         }
     }
 

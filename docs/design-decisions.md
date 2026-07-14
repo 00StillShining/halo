@@ -1023,6 +1023,56 @@ auditions looped, and one-clicks into the Phase-3 prep sheet.
 - Pure bar-math, zero-cross trim, BPM and naming are unit-tested (`GrabMathTests`, 16
   cases) plus a rolling-buffer wrap round-trip + floor gating.
 
+### DD-030 — CHOP: local spectral-flux slicing + mock/disabled send seam (P5c-chop)
+
+Phase 5c (Brief §5c) adds `CHOP`: slice a break / vocal / grab at its transients and lay
+the slices onto consecutive pads. The onset detection, slices, per-slice fades, audition
+and byte estimates are all **LOCAL and REAL**; the pad/slot destination is **MOCK** and
+the actual upload+assign is **disabled** (Phase 0B, needsDevice).
+
+- **Transient surface, NOT a seventh mode.** CHOP is a task with a clear start→end (pick
+  source → slice → send), like `PreparationSheet` and the GRAB→pads flow — not a workbench
+  to dwell in. Adding a 7th persistent mode would diverge from Brief §7's enumerated mode
+  bar and disturb the ⌘1…N indexing contract. So `HaloMode`, the mode bar and all ⌘
+  shortcuts are untouched; `ChopSurface` is presented from `HaloRootView`'s ZStack gated on
+  `model.chop.isOpen`, reusing the existing scrim + `haloTransient`/Escape stack. Entry
+  points are where the brief's workflow begins: a **Capture** take/grab row (`CHOP` button +
+  "Chop into Pads" context menu) and an **Edit** selected local sample (`CHOP INTO PADS`).
+  _(The owner may later prefer a dwell-in CHOP mode with the stage showing target pads —
+  that is a larger, separately-gated change; the transient surface is the low-risk,
+  brief-conformant call.)_
+- **Honest spectral-flux onsets** (`Halo/Samples/OnsetDetector.swift`): Hann-windowed real
+  FFT (classic vDSP `vDSP_fft_zrip`) → half-wave-rectified spectral flux → adaptive
+  peak-pick (`threshold = localMean·mult + floor`, sensitivity 0…1 maps `mult` 2.2…0.8).
+  Pure, deterministic, off-`@MainActor` (Brief §2, run via `Task.detached`). Operates on the
+  real `CanonicalAudioBuffer.monoMixdown()`; **silent / too-short input → zero onsets**, a
+  never-fabricated grid. Unit-tested against a synthesized break fixture (planted transients
+  detected within ±30 ms; sensitivity monotone; silence empty).
+- **Editable `SliceSet`.** Onsets become interior cut points; slice 1 always starts at 0 and
+  the last ends at n (tiles the whole signal). Cuts are draggable / double-click-addable /
+  ⌥-click- or ⌫-deletable in `SliceWaveform`, each kept ≥ `minGap` (one summary bucket + one
+  micro-fade) wide. Equal-power ~4 ms micro-fades per slice by default (anti-click).
+- **Interaction reconciliation.** The waveform single-click auditions the slice under the
+  cursor (matching the slice chips); double-click adds a cut; drag moves a marker; ⌥-click
+  or ⌫ deletes. (The spec listed "click to add" and "click to audition" separately — one
+  coherent scheme is single=audition / double=add, keeping every op mouse- and
+  keyboard-operable.)
+- **Keyboard audition mirrors pad order** (`ChopKeyboard`): the key whose legend sits on pad
+  P auditions the slice assigned to P (1–9, 0, ., Return over `PadGrid.legends`). Audition is
+  LOCAL to the system default via the shared `AuditionPlayer` (DD-022) — it says nothing
+  about the device; the waveform playhead moves only while real playback runs.
+- **Send is a disabled seam.** `ChopPlanner.plan` is a pure preview — slices fill
+  `startGridIndex…11` in the chosen group in order, **overflow is reported, never wrapped**;
+  slot numbers walk the MOCK next-free set; bytes are REAL treated-frame arithmetic
+  (`SampleMemoryEstimator`). `ChopSending`/`DeviceUnavailableChopSender` mirror
+  `BackupRestoring`: the only reachable result is `.needsDevice` (Phase 0B). The `SEND TO
+  PADS` button is `.disabled(true)`, never Return-bound (`haloSafeDefault` stays forbidden on
+  device writes), and the caption models the intent (one pre-write backup → serialised
+  verified write+assign per slice → truthful partial report on abort) without executing it.
+- Onset math, `SliceSet` edits, keyboard mapping and the plan (names/slots/bytes/overflow)
+  are unit-tested (`OnsetDetectorTests`, 14 cases). `SEND TO PADS` + assign is recorded under
+  `needsDevice`; no protocol bytes are invented.
+
 ---
 
 _Open decisions awaiting evidence:_

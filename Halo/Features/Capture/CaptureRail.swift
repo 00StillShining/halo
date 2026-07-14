@@ -209,10 +209,14 @@ private struct TakeRow: View {
                 }
             }
 
-            // GRAB takes get inline actions: open the Phase-3 prep sheet (device write
-            // stays disabled), and loop-audition locally (DD-022, no device claim).
-            if isGrab {
-                HStack(spacing: HaloMetrics.s1) {
+            // Every take can be CHOPPED into consecutive pads (Brief §5c, DD-030 — the
+            // device send stays disabled). GRAB takes also get PREP ▸ PAD + loop audition.
+            HStack(spacing: HaloMetrics.s1) {
+                Button("CHOP") { model.beginChopFromURL(take.url) }
+                    .buttonStyle(MechanicalButtonStyle())
+                    .focusable()
+                    .help("Chop into pads — onset-slice this take (device send disabled, Phase 0B)")
+                if isGrab {
                     Button("PREP ▸ PAD") { model.prepareForPad(take) }
                         .buttonStyle(MechanicalButtonStyle())
                         .focusable()
@@ -223,6 +227,7 @@ private struct TakeRow: View {
                         .focusable()
                         .help("Audition ▸ loop locally (system output, not the EP-40)")
                 }
+                Spacer(minLength: 0)
             }
         }
         .padding(HaloMetrics.s1)
@@ -239,6 +244,7 @@ private struct TakeRow: View {
             TakeDragPreview(take: take)
         }
         .contextMenu {
+            Button("Chop into Pads") { model.beginChopFromURL(take.url) }
             if isGrab {
                 Button("Prepare for Pad") { model.prepareForPad(take) }
                 Button(isPlaying ? "Stop Audition" : "Audition ▸ Loop") { model.auditionGrab(take) }

@@ -51,6 +51,25 @@ struct PlayRail: View {
         }
     }
 
+    /// Honest one-line status for the RECORD control. The recorder taps the RAW
+    /// pre-monitor input (DD-018), so it needs a running route to record.
+    private var recordCaption: String {
+        switch model.recorder.state {
+        case .recording:
+            // Read the observed `elapsed` (updated at 50 Hz) so the caption ticks.
+            return "CAPTURING RAW INPUT — \(HaloRecordFormat.clock(model.recorder.elapsed))"
+        case let .failed(reason):
+            switch reason {
+            case .monitorOff: return "MONITOR OFF — START MONITORING TO RECORD"
+            case let .fileOpen(msg): return "COULD NOT OPEN FILE — \(msg)"
+            }
+        case .idle:
+            return isRunning
+                ? "RECORDS THE RAW INPUT — PRE-GAIN / PRE-LIMITER (⌘R)"
+                : "MONITOR OFF — START MONITORING TO RECORD"
+        }
+    }
+
     private func toggleMonitor() {
         // Through the app-model wrappers so the halo ring's MON truth updates in
         // the same breath as the route (never a stale ring state).
@@ -114,10 +133,12 @@ struct PlayRail: View {
 
             HaloPanel("TRANSPORT") {
                 VStack(alignment: .leading, spacing: HaloMetrics.s2) {
-                    Button("RECORD") {}
+                    let isRecording = model.recorder.isRecording
+                    Button(isRecording ? "STOP" : "RECORD") { model.toggleRecording() }
                         .buttonStyle(MechanicalButtonStyle())
-                        .disabled(true)
-                    RailCaption("SESSION RECORDER — PHASE 2")
+                        .mechanicalEngaged(isRecording)
+                        .disabled(!isRunning && !isRecording)
+                    RailCaption(recordCaption)
                     Button("GRAB") {}
                         .buttonStyle(MechanicalButtonStyle())
                         .disabled(true)

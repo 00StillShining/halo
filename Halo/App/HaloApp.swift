@@ -47,6 +47,16 @@ struct HaloApp: App {
                                           modifiers: .command)
                 }
             }
+            // ⌘R record toggle (Brief §7: ⌘M monitor, ⌘R record, ⌘G grab).
+            // Disabled unless a monitor route is running (the raw stream only exists
+            // then — DD-018) or a take is already in progress. GRAB is Phase 5b.
+            CommandMenu("Capture") {
+                Button(model.recorder.isRecording ? "Stop Recording" : "Record") {
+                    model.toggleRecording()
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(!model.recorder.isRecording && !model.monitor.isRunning)
+            }
         }
     }
 }

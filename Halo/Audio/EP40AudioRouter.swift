@@ -14,6 +14,10 @@ struct MonitorRouteConfig: Sendable {
     let initialGainDB: Double
     /// Ring-glow producer shared with the RealityKit rig.
     let levelBridge: AudioLevelBridge
+    /// Optional RAW-input recorder tap (P2-recorder). The input callback writes the
+    /// pre-gain/pre-limiter stream here when the recorder has armed it. Nil when no
+    /// recorder is attached to this route.
+    let captureTap: CaptureTap?
 }
 
 /// Why a route could not be opened. Surfaced honestly to the UI (Brief §1/§4) — no
@@ -88,7 +92,8 @@ final class EP40AudioRouter: MonitorEngine, @unchecked Sendable {
             sampleRate: sampleRate,
             maxFrames: max(frames, 512),
             initialGainDB: config.initialGainDB,
-            levelBridge: config.levelBridge)
+            levelBridge: config.levelBridge,
+            captureTap: config.captureTap)
         let ref = Unmanaged.passUnretained(ctx)
         let refcon = ref.toOpaque()
 

@@ -44,13 +44,22 @@ final class MonitorRenderContext: @unchecked Sendable {
     let meter: AudioMeter
     let levelBridge: AudioLevelBridge
 
+    /// Optional RAW-input recorder tap (P2-recorder). When present AND armed, the
+    /// input callback best-effort-writes the same pre-gain/pre-limiter samples it
+    /// bridges to the monitor into the tap's own ring, and publishes raw peaks.
+    /// Nil when no recorder is attached; a single relaxed atomic load per block when
+    /// attached but not armed.
+    let captureTap: CaptureTap?
+
     /// UI→RT gain bridge: linear amplitude bit-pattern, written by the main actor,
     /// read once per output block. Lock-free (Brief §8).
     let gainTargetBits: Atomic<UInt32>
 
-    init(sampleRate: Double, maxFrames: Int, initialGainDB: Double, levelBridge: AudioLevelBridge) {
+    init(sampleRate: Double, maxFrames: Int, initialGainDB: Double,
+         levelBridge: AudioLevelBridge, captureTap: CaptureTap? = nil) {
         self.maxFrames = maxFrames
         self.levelBridge = levelBridge
+        self.captureTap = captureTap
 
         var asbd = AudioStreamBasicDescription()
         asbd.mSampleRate = sampleRate
@@ -164,5 +173,13 @@ func monitorInputRender(
     // Best-effort write; if the consumer is momentarily behind we drop the overflow
     // rather than block (Brief §8: callbacks never block).
     ctx.ringBuffer.write(src, count: needed)
+
+    // P2-recorder: tap the RAW pre-monitor stream (before gain/limiter/FX) into the
+    // recorder's OWN ring when armed. One relaxed atomic load when idle; both calls
+    // below are RT-safe (preallocated ring write + peak-only meter publish).
+    if let tap = ctx.captureTap, tap.armed.load(ordering: .relaxed) {
+        tap.ring.write(src, count: needed)
+        tap.meter.publish(src, frames: frames)
+    }
     return noErr
 }

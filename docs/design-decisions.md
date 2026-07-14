@@ -568,6 +568,41 @@ Overseer sweep (same task, before commit):
 
 ---
 
+## DD-018 — Session recorder taps the raw pre-monitor input; recording requires an active route (P2-recorder)
+
+**Decision.** The session recorder (Brief §7 Capture) records the RAW EP-40 input *before* halo's
+monitor gain/limiter/FX — exactly the stream `monitorInputRender` bridges into the monitor ring. Rather
+than open a second, competing input AUHAL, it taps the existing running route through a shared
+`CaptureTap` (its own SPSC ring + a raw pre-gain `AudioMeter` + an `armed` atomic). The input callback,
+when the tap is armed, best-effort-writes the same interleaved block into the tap's ring and publishes
+raw peaks — one relaxed atomic load per block when idle, RT-safe throughout (Brief §8).
+
+**Consequences / honesty (Brief §1/§4).**
+- Recording is **gated on `monitor.isRunning`**: the raw stream only exists while the input AUHAL runs.
+  `HaloAppModel.toggleRecording()` / ⌘R refuse honestly (no-op) with a real disabled reason
+  ("MONITOR OFF — START MONITORING TO RECORD") when no route is live — the "absent input" path, never a
+  fabricated silent take.
+- **Silent-but-live input** → the input callback writes zeros → a valid, honestly-silent WAV.
+- **Route drops mid-record** (USB yank / `stopMonitor`) → `recorder.finishIfRecording()` finalizes the
+  take with whatever was captured (valid WAV) before `monitor.stop()`.
+- `HaloRingState.recording` finally has its **real producer**: `SessionRecorder.startedAt` is non-nil
+  only while the drain thread runs, wired into `refreshRingState()`. `HaloRingRig` already rendered
+  `.recording` (breathing) — it was unreachable purely for lack of this producer.
+
+**Mechanics.** A dedicated `RecordingDrain` owns the sole consumer thread (drains the ring → `WAVFileWriter`,
+a testable `AVAudioFile`-backed 24-bit LinearPCM `.wav` writer); `finish()` joins before the take is
+ingested so the file is fully flushed. Takes are **files on disk** (no separate DB) under
+`~/Library/Application Support/Halo/Recordings`; `TakesStore` scans that dir on init and reads REAL
+metadata via `AVAudioFile` — an unreadable/partial/foreign file is dropped, never invented. Drag-to-pad
+registers the take's file URL, reusing the existing `StageDropDelegate` prep flow verbatim (opens the
+prep sheet preselected to the pad); `SEND + ASSIGN` stays device-gated (Phase 0B). The WAV writer, the
+extracted `drainAvailable` drain body, and `TakesStore.readTake` are unit-tested headless
+(`WAVFileWriterTests`, `CaptureTapTests`); real audio through hardware into the file end-to-end is
+needs-device. `NSMicrophoneUsageDescription` belongs to the monitor route's device layer (the AUHAL
+input), not the WAV writer — recording without a route never trips it.
+
+---
+
 _Open decisions awaiting evidence:_
 - Exact physical control inventory (confirm/adjust the contract) — research + owner photos.
 - Palette A vs B — owner, at Phase 1 gate.

@@ -30,10 +30,43 @@ final class HaloAppModel {
     /// real peaks into a dead end).
     let monitor: MonitorController
 
+    /// RAW pre-monitor recorder tap (P2-recorder, DD-018). The SAME instance is
+    /// shared with the `MonitorController` (so the input callback fills it) and the
+    /// `SessionRecorder` (so the drain thread consumes it) — identical ownership to
+    /// the scene's `audioLevelBridge`.
+    let captureTap = CaptureTap()
+    /// Local library of captured takes (files on disk).
+    let takes = TakesStore()
+    /// Session recorder lifecycle. Records the raw input while a monitor route runs.
+    let recorder: SessionRecorder
+
     init() {
         let sceneController = EP40SceneController()
         scene = sceneController
-        monitor = MonitorController(levelBridge: sceneController.audioLevelBridge)
+        monitor = MonitorController(levelBridge: sceneController.audioLevelBridge,
+                                    captureTap: captureTap)
+        recorder = SessionRecorder(tap: captureTap, takes: takes)
+    }
+
+    /// The running route's sample rate = the resolved output device's nominal rate.
+    /// The recorder writes its WAV at this rate so the file matches the route (never
+    /// a guessed rate). Nil when no output device resolves.
+    var activeRouteSampleRate: Double? {
+        audioOutput.resolution(in: audioDevices.snapshot).device?.currentSampleRate
+    }
+
+    /// ⌘R / RECORD (Brief §7). Toggles the recorder, gated on an active monitor
+    /// route: the raw pre-monitor stream only exists while the input AUHAL runs
+    /// (DD-018). Refuses honestly (no-op) when the route is off — the UI shows the
+    /// real reason. Refreshes the halo ring so `.recording` truth is never stale.
+    func toggleRecording() {
+        if recorder.isRecording {
+            recorder.stop()
+        } else {
+            guard monitor.isRunning else { return }
+            recorder.start(sampleRate: activeRouteSampleRate ?? 48_000)
+        }
+        refreshRingState()
     }
 
     /// Start the monitor route (explicit user action, Brief §8) and reflect the
@@ -45,6 +78,9 @@ final class HaloAppModel {
     }
 
     func stopMonitor() {
+        // Stopping the monitor ends the raw input stream, so finalize any take
+        // first (valid WAV) rather than leaving a dangling recorder (DD-018).
+        recorder.finishIfRecording()
         monitor.stop()
         refreshRingState()
     }
@@ -149,11 +185,12 @@ final class HaloAppModel {
             observerRunning: midiObserver != nil,
             endpointConnected: endpointConnected,
             errorLabel: ringErrorLabel,
-            monitorEngaged: monitor.isRunning
-            // recordingStartedAt / transferProgress have no producers yet
-            // (recorder is a later phase; device transfer is Phase 0B), so those
-            // states are correctly unreachable. monitorEngaged is REAL as of
-            // P2-route: true only while the AUHAL route is actually running.
+            monitorEngaged: monitor.isRunning,
+            // recordingStartedAt is REAL as of P2-recorder: non-nil only while the
+            // drain thread is actually running (SessionRecorder.startedAt). It sits
+            // above monitoring in `derive`, so an active take shows `.recording`.
+            recordingStartedAt: recorder.startedAt
+            // transferProgress still has no producer (device transfer is Phase 0B).
         )
         ringState = HaloRingState.derive(inputs)
         scene.applyRing(ringState)
@@ -198,6 +235,9 @@ final class HaloAppModel {
             usbStatus = "IDLE"
             displayStatus = "PREVIEW"
             // USB removal must stop the monitor route promptly (Brief §8 safety).
+            // Finalize any in-flight take first so a yank yields a valid WAV of
+            // whatever was captured, never a dangling recorder (DD-018).
+            recorder.finishIfRecording()
             monitor.stop()
             heldMIDIKeys.removeAll(keepingCapacity: true)
             resetClockTracking()

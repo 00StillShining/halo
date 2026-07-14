@@ -41,14 +41,20 @@ final class MonitorController {
 
     private let engine: MonitorEngine
     private let levelBridge: AudioLevelBridge
+    /// Shared RAW-input recorder tap (P2-recorder). Passed into every route config
+    /// so the recorder can tap the live input; nil when no recorder is attached.
+    private let captureTap: CaptureTap?
     private var meterTask: Task<Void, Never>?
 
     /// Meter poll rate (Brief §8: 30–60 Hz). 50 Hz is comfortably inside the band.
     private let meterInterval = Duration.milliseconds(20)
 
-    init(engine: MonitorEngine = EP40AudioRouter(), levelBridge: AudioLevelBridge = AudioLevelBridge()) {
+    init(engine: MonitorEngine = EP40AudioRouter(),
+         levelBridge: AudioLevelBridge = AudioLevelBridge(),
+         captureTap: CaptureTap? = nil) {
         self.engine = engine
         self.levelBridge = levelBridge
+        self.captureTap = captureTap
     }
 
     var isRunning: Bool { state.isRunning }
@@ -76,7 +82,8 @@ final class MonitorController {
             outputUID: outputUID,
             profile: profile,
             initialGainDB: gainDB,
-            levelBridge: levelBridge)
+            levelBridge: levelBridge,
+            captureTap: captureTap)
         do {
             try engine.start(config: config)
             activeInputUID = inputUID

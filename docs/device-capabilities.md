@@ -39,18 +39,19 @@ Status legend:
 | Capability | Status | Evidence | Date |
 |---|---|---|---|
 | Identity request/reply | UNKNOWN | Phase 0A | — |
-| Pads **transmit** Note On/Off (all 12 × groups A–D) | UNKNOWN — mapping DOCUMENTED, direction unverified | Phase 0A | — |
-| Velocity present on pad notes | UNKNOWN | Phase 0A | — |
+| Pads **transmit** Note On/Off (all 12 × groups A–D) | **OBSERVED** — one-shot pads TX Note On/Off; the app depresses the correct on-screen pad. (Loop-play-mode pads: see below.) | Phase 0A session 1 (owner) | 2026-07-14 |
+| Velocity present on pad notes | **OFF BY DEFAULT** — pad velocity is a device SYSTEM setting (`300 pad›vel›off` default). Enable `301` (hi / soft touch) or `302` (lo). TE chart shows Note-On velocity 0–127 TX. Soft-vs-hard produced no difference with it off (correct/honest); re-test with `301`. | Phase 0A session 1 + owner guide §14 | 2026-07-14 |
 | Per-note velocity → LED intensity mapping (DD-012) | Consumed AS OBSERVED (0–127 → 0–1, quadratic to opacity). No velocity *curve* is claimed as hardware behaviour — if the device sends velocity at all, halo simply reflects the number it received. | DD-012 | — |
 | Note ranges 36–47=A … 72–83=D | DOCUMENTED (verbatim TE chart, both TX+RX columns) | research/02 | — |
-| Internal pad order within a group (dot/0–9/ENTER vs other) | **UNKNOWN — assumption only** | not in TE chart (research/02); app code currently assumes `. 0 ENTER 1–9` in EP40EntityNames — verify on device (Phase 0A) | — |
-| Play / Stop / Record **transmit** transport | UNKNOWN | Phase 0A | — |
+| Internal pad order within a group (dot/0–9/ENTER) | **OBSERVED — CONFIRMED CORRECT** ✅ owner pressed pads on the real EP-40: `dot=36, 0=37, ENTER=38, 1=39, 2=40, 3=41, 5=43, 9=47` — EXACTLY the app's assumed `. 0 ENTER 1–9` (`EP40EntityNames.padGridOrder` / `midiOffsetToGrid`). The build-long assumption is verified; no code change needed. | Phase 0A session 1 (owner) | 2026-07-14 |
+| Play / Stop / Record **transmit** transport | **GATED ON DEVICE SETTING** — transport TX rides MIDI clock, which is `100 mid›clk›off` by default. Set `102 mid›clk›out`. Also per-pad/per-project MIDI-channel config (`110` default = send ch1; `127` = only if channel assigned) explains why transport reacted then died on a project change. Re-test with `102`. | Phase 0A session 1 + owner guide §14 | 2026-07-14 |
 | Hardware **record state** observable (for `button_record` lighting) | **NOT observable via documented USB MIDI** — no Record realtime message; `EP40DisplayState` has no record field. `button_record` stays unlit by design (DD-010). needsDevice: revisit in Phase 0B. | research/02, DD-010 | — |
-| MIDI clock SEND (24 PPQN, stable) | UNKNOWN — needed for 5b | Phase 0A | — |
+| MIDI clock SEND (24 PPQN, stable) | **AVAILABLE, OFF BY DEFAULT** — `100 mid›clk›off` default; set `102 mid›clk›out` (send only) to emit clock + transport. Stability/24-PPQN trackability re-tested with `102` on. | Phase 0A session 1 + owner guide §14 | 2026-07-14 |
 | GRAB rolling raw history (60 s @ 48 k, fixed 32 MiB ring) | **Mac-side FACT** (DD-029) — an always-on `RollingCaptureBuffer` captures the raw pre-FX monitor input while a route runs; grab freezes the last 4/8/16 bars (clocked) or 5/10/30 s (no clock, EST bpm), zero-cross-trimmed. Pure math unit-tested. | Brief §5b, DD-029 | 2026-07-14 |
 | GRAB bar-accurate loop *feel* through hardware | needsDevice — bar boundaries are anchored from the delivered downbeat tick, subject to MIDI + callback latency; the seamless-loop feel is verified on-device (Phase 0A clock). | Brief §5b, DD-029 | — |
 | GRAB print-through of PRINT-FX (post-rack) loop | needsDevice-adjacent — deferred by SPSC single-producer safety (DD-029), not device-gated. The always-on ring stays RAW; a post-FX grab would need a second ring/producer. | DD-029 | 2026-07-14 |
-| Device transmits CC 12/13 when X/Y knobs move | UNKNOWN — likely NOT | Phase 0A | — |
+| Device transmits CC 12/13 when X/Y knobs move | **OBSERVED — DOES NOT TRANSMIT** ✅ owner turned X and Y, no app reaction. The physical X/Y knobs are pad-parameter editors (play mode / root note in sound edit), not MIDI CC senders. Matches the brief's expectation; the app correctly never rotated them. | Phase 0A session 1 (owner) | 2026-07-14 |
+| Loop-play-mode pads transmit MIDI when triggered | **NOT-OBSERVED (needs re-test)** — a loop-sample pad produced no app reaction. Loops "run in the background" (owner guide §10.5) and may not emit a standard Note On, or the pad/project MIDI channel differed. Re-test: watch the on-screen display number when pressing the loop pad — if it doesn't change, the device emits no note for loop pads (record as device behaviour); if it changes but no pad lights, it's an app bug. | Phase 0A session 1 (owner) | 2026-07-14 |
 | CC inputs recognised (1,12,13,64) | DOCUMENTED | Brief §3 | — |
 | Bank Select + PC selects sounds 1–999 (exact scheme) | DOCUMENTED, scheme unverified | Phase 0A read-only | — |
 

@@ -63,6 +63,13 @@ research uncertainty). The brief §6 was right: a front grille, and the audio-re
 placeholder updated accordingly. Real instanced perforations/stripes come with the
 final model.
 
+### DD-GATE · Phase 1 palette gate DECIDED — Palette A (cool "graph paper")
+**2026-07-14.** Owner picked **Palette A** at the live gate ("I like the current
+palette A; functionally the application works amazing"), with the real EP-40 connected
+and responding. Palette B (warm "bone paper") stays in the codebase for now and is
+removed as part of the upcoming UI-upgrade phase (Brief §5 "the loser is deleted"),
+not before — keeping both working costs nothing today. Default remains `.graphPaper`.
+
 ### DD-007 · Mechanical pad press-travel (RealityKit)
 **2026-07-13.** `KeyTravelAnimator` presses the active pad ~1.2 mm into the top
 plate (Brief §6: 55–75 ms ease-in down, 95–120 ms damped ease-out up) via

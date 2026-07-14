@@ -57,6 +57,17 @@ struct HaloRootView: View {
         .onKeyPress(.escape) {
             model.transients.handleEscape() ? .handled : .ignored
         }
+        // Space-to-audition (Brief §7): only in Edit, only with a selection, and never
+        // while the rename field is focused (it consumes Space to type). Escape must NOT
+        // stop audition — the transient stack above is left untouched.
+        .onKeyPress(.space) {
+            guard EditSession.shouldAudition(mode: model.mode,
+                                             isRenaming: model.edit.isRenaming,
+                                             hasSelection: model.edit.selectedAssetID != nil)
+            else { return .ignored }
+            model.toggleAudition()
+            return .handled
+        }
         .onAppear {
             model.scene.setReduceMotion(reduceMotion)
             model.startEP40Monitoring()
@@ -82,10 +93,22 @@ struct HaloRootView: View {
                 reduceMotion: displayLifecycle.reduceMotion
             )
         }
-        // Global Finder drop (Brief §7): the stage delegate wins over the model
-        // area; this catches drops on the rail / status / mode bar and opens the
-        // prep sheet with no pad preselected.
+        // Global Finder drop (Brief §7), mode-aware: in EDIT a drop imports into the
+        // local library (DD-022); otherwise it opens the LOAD prep sheet with no pad
+        // preselected. Mode-gating the root handler keeps the Load prep-sheet from
+        // hijacking a drop while the user is editing.
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            if model.mode == .edit {
+                guard !providers.isEmpty else { return false }
+                let edit = model.edit
+                for provider in providers {
+                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                        guard let url else { return }
+                        Task { @MainActor in await edit.import(urls: [url]) }
+                    }
+                }
+                return true
+            }
             guard let provider = providers.first else { return false }
             let load = model.load   // capture the Sendable value, not the @Environment wrapper
             _ = provider.loadObject(ofClass: URL.self) { url, _ in

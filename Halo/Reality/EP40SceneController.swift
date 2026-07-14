@@ -303,6 +303,42 @@ final class EP40SceneController {
                          translation: p)
     }
 
+    /// Look-at transform from an arbitrary eye to an arbitrary target (the
+    /// `heroTransform` above is the `target == .zero` special case). Camera forward
+    /// is −Z, so the +Z basis column points from the target back toward the eye.
+    nonisolated static func lookAtTransform(from eye: SIMD3<Float>, to target: SIMD3<Float>) -> Transform {
+        let back  = simd_normalize(eye - target)
+        let right = simd_normalize(simd_cross(SIMD3<Float>(0, 1, 0), back))
+        let up    = simd_cross(back, right)
+        return Transform(scale: .one,
+                         rotation: simd_quatf(simd_float3x3(right, up, back)),
+                         translation: eye)
+    }
+
+    /// Ease the hero camera toward a numeric pad while keeping the whole device framed
+    /// (Brief §7 "without losing whole-device context", DD-013 presentation — never a
+    /// hardware claim, never releases pads / touches display / ring). Gentle by design:
+    /// bias the look-at ~40% toward the pad, pull the radius in ~6%, and slide the eye a
+    /// little to the pad's side. Safe before the USDZ loads (records `pendingMode`).
+    func focusCamera(onPadGridIndex gridIndex: Int) {
+        pendingMode = .edit
+        guard EP40Entity.padGridOrder.indices.contains(gridIndex),
+              let e = resolved[EP40Entity.padGridOrder[gridIndex]],
+              let cam = cameraEntity else { return }
+        let pad = e.position(relativeTo: nil)                       // world space
+        let target = simd_mix(SIMD3<Float>.zero, pad, SIMD3<Float>(repeating: 0.40))
+        let base = Self.framing(for: .edit)
+        let eye = Self.heroPosition(radius: base.radius * 0.94, yawDeg: base.yawDeg, pitchDeg: base.pitchDeg)
+                + SIMD3<Float>(pad.x, 0, pad.z) * 0.25
+        let t = Self.lookAtTransform(from: eye, to: target)
+        if reduceMotion {
+            cam.transform = t
+        } else {
+            cam.move(to: t, relativeTo: nil,
+                     duration: HaloMechanics.modeChangeDuration, timingFunction: .easeInOut)
+        }
+    }
+
     /// Re-frame the hero model for a mode. Safe before or after the USDZ loads —
     /// `pendingMode` is applied on load. This is halo presentation, not a hardware
     /// claim: it never releases pads or touches display / ring state (DD-013).

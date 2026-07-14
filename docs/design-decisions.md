@@ -717,6 +717,59 @@ file remains **needs-device** (Phase 0B) — the encoders are verified LOCALLY o
 
 ---
 
+### DD-022 · Edit mode UI + local library + audition (P3-editui)
+**2026-07-14.** Brief §7 Edit. The mode fuses **two provenance classes** and keeps them structurally distinct —
+that separation is the whole honesty story (Brief §1/§4):
+
+- **LOCAL sample (REAL)** — an imported file decoded to a `CanonicalAudioBuffer`. Its waveform, trim/fade/gain/
+  normalise/channel/rate treatment, byte estimate and audition are all real, computed by the existing
+  `SamplePrep`/`SampleTreatment`/`WaveformSummary`/`SampleMemoryEstimator` (DD-020/DD-021). No mock.
+- **PAD TARGET (MOCK)** — which device pad this edit is *destined for*. Drives the camera ease and shows the
+  current mock assignment from `MockDeviceLibrary.standard` (the SAME static value `LoadSession` reads — no
+  divergence). Tagged `MOCK`; `SEND CHANGES` is disabled (device transfer = Phase 0B, needsDevice).
+
+Consequence, stated honestly in the UI: **a device sample has no waveform** — halo has never downloaded its
+audio — so a pad holding a mock sound shows a `WAVEFORM UNAVAILABLE — DEVICE SAMPLE (NEEDS DEVICE)` caption, and
+the real waveform editor appears only for a LOCAL sample the user selected. Pad selection sets destination +
+camera; local-sample selection sets the edit subject.
+
+Pieces added under `Halo/Features/Edit/`:
+- **`EditSession`** (`@MainActor @Observable`, UI-only, DD-013 honesty class): local `library` (newest first),
+  a **cache-of-1** heavy-buffer store (only the selected asset's `CanonicalAudioBuffer` is resident; others
+  evict on selection change and re-decode lazily via `ensureBuffer` from `sourceURL`), per-asset **non-destructive**
+  `preps`/`treatments` (mutating a recipe never touches the asset or buffer), pad target, `isRenaming` gate, and
+  a `selectedEstimate` that wires the real `SampleMemoryEstimator` through. `auditionBuffer()` applies the prep
+  and resamples to the treatment rate **off `@MainActor`** (so a LO-FI preset actually sounds lo-fi) and hands
+  back Sendable `[[Float]]`.
+- **`AuditionPlayer`** (`@MainActor @Observable`): LOCAL playback of the prepared buffer to the **system default
+  output** via `AVAudioEngine` + `AVAudioPlayerNode` — ordinary file preview, **deliberately separate** from the
+  EP-40 monitor AUHAL route (DD-017) and claiming nothing about the device. No custom render callback (a prebuilt
+  buffer is handed to `scheduleBuffer`), so the RT-callback rules don't apply. Playhead progress is derived from
+  the node's **real render clock** (`playerTime(forNodeTime:)`) — never fake motion; hidden when idle. Stopped on
+  the recorder's safety edges (sleep, background, USB disconnect); Escape does **not** stop it (Brief §7).
+- **`WaveformStrip`** — a `Canvas` min/max envelope with mechanical trim handles (the `HaloFader` cap language),
+  triangular fade wedges, dimmed out-of-window buckets, and the audition playhead. Geometry (`frameToX`/`xToFrame`/
+  `clampTrim`) is pure and unit-tested.
+- **`EditRail`** rewrite — vertical `HaloPanel` stack (LIBRARY / DESTINATION / WAVEFORM / TRIM·FADE / GAIN·LEVEL /
+  FORMAT / MEMORY IMPACT / SEND CHANGES) over a `MOCK DEVICE CONTEXT · LOCAL EDIT IS REAL` strip. Import via
+  `NSOpenPanel`; the global Finder drop is now **mode-aware** (EDIT imports locally, otherwise LOAD prep sheet).
+  All mechanical controls/tokens — fades and gain are `HaloFader`s (no stock `Slider`); rename is the single
+  text field and drives `isRenaming`.
+
+Camera: `EP40SceneController.focusCamera(onPadGridIndex:)` (+ generalised `lookAtTransform(from:to:)`) eases the
+hero camera gently toward a pad (~40% look-at bias, ~6% radius pull-in, small side slide) so the chassis stays
+framed — halo presentation (DD-013), never a hardware claim, never releases pads. Space-to-audition is gated in
+`HaloRootView` via the pure `EditSession.shouldAudition(mode:isRenaming:hasSelection:)`.
+
+Honest limitation (needsDevice): device samples have **no** waveform (never downloaded); `SEND CHANGES` is a
+Phase 0B device write and is disabled with a plain-language intent line (`WOULD CREATE SLOT … / WOULD REPLACE
+SLOT …`). Tested headless (`EditSessionTests`, 15 cases): import/skip/newest-first, cache-of-1 evict+re-decode,
+per-asset non-destructive prep + source-immutability, reset, wired memory estimate, rename trim/blank-guard, mock
+pad-target consistency, the Space gate predicate, `WaveformGeometry` round-trip/clamp, and pure `makeBuffer`.
+`AuditionPlayer` engine playback is **needs-device** (real output) and left untested, exactly as the AUHAL route is.
+
+---
+
 _Open decisions awaiting evidence:_
 - Exact physical control inventory (confirm/adjust the contract) — research + owner photos.
 - Palette A vs B — owner, at Phase 1 gate.

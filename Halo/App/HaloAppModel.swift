@@ -17,6 +17,15 @@ final class HaloAppModel {
     /// never touches displayState / ringState / MIDI (DD-013/DD-014).
     let load = LoadSession()
 
+    /// EDIT-mode UI state (Brief §7, DD-022). LOCAL sample library + non-destructive
+    /// prep; pad target is MOCK device context. UI-only, same honesty class as `load`.
+    let edit = EditSession()
+
+    /// LOCAL sample audition (Brief §7). Plays a prepared buffer to the SYSTEM DEFAULT
+    /// output — deliberately separate from the EP-40 monitor route (DD-022), claims
+    /// nothing about the device.
+    let audition = AuditionPlayer()
+
     /// Core Audio device discovery + the user's persisted monitor-output choice
     /// (Brief §8). Read-only: discovery reflects real devices and never changes
     /// the system default; selection persists a stable UID for the Phase 2 route.
@@ -103,6 +112,33 @@ final class HaloAppModel {
         monitor.stop()
         refreshRingState()
         refreshLifecycle()
+    }
+
+    /// SPACE / AUDITION (Brief §7). Toggles LOCAL playback of the prepared+treated
+    /// selected sample to the system default output. Honest: an empty selection or a
+    /// failed engine start is a no-op. Not the EP-40 route (DD-022) — no device claim.
+    func toggleAudition() {
+        if audition.isPlaying {
+            audition.stop()
+        } else {
+            Task { @MainActor in
+                if let buffer = await edit.auditionBuffer(), let id = edit.selectedAssetID {
+                    audition.play(buffer, assetID: id)
+                }
+            }
+        }
+    }
+
+    /// EDIT pad target (Brief §7). Sets the mock destination pad and eases the camera
+    /// toward it (or back to the mode framing when cleared). Presentation only (DD-013);
+    /// never releases pads or touches display / ring state.
+    func selectEditPad(gridIndex: Int?) {
+        edit.setPadTarget(gridIndex: gridIndex)
+        if let gridIndex {
+            scene.focusCamera(onPadGridIndex: gridIndex)
+        } else {
+            scene.focusCamera(for: .edit)
+        }
     }
 
     // MARK: - Shell (Brief §7). UI-only state — a mode switch never touches
@@ -204,6 +240,8 @@ final class HaloAppModel {
         systemAsleep = true
         recorder.finishIfRecording()
         monitor.stop()
+        // Audition is local, but a stuck engine across sleep is sloppy — stop it too.
+        audition.stop()
         releaseAllHeldKeys()
         resetClockTracking()
         if displayFeedMode == .live {
@@ -236,6 +274,7 @@ final class HaloAppModel {
     /// them again on return. Merely losing key-window focus (`.inactive`) does NOT
     /// release — events keep flowing there, so the held state stays honest.
     func handleSceneBackgrounded() {
+        audition.stop()
         releaseAllHeldKeys()
         if displayFeedMode == .live, !systemAsleep {
             displayStatus = "WAIT"
@@ -389,6 +428,8 @@ final class HaloAppModel {
             // whatever was captured, never a dangling recorder (DD-018).
             recorder.finishIfRecording()
             monitor.stop()
+            // A USB yank is a hardware-context change; stop local audition too (DD-022).
+            audition.stop()
             heldMIDIKeys.removeAll(keepingCapacity: true)
             resetClockTracking()
             present(.previewStill)
